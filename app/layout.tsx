@@ -22,6 +22,10 @@ export const metadata: Metadata = {
   description:
     "El sistema operativo de tu liga: calendario, marcadores en vivo, estadísticas y tablas de posiciones.",
   applicationName: "ALV SPORT",
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     title: "ALV SPORT",
