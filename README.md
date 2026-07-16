@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ALV SPORT — League OS
 
-## Getting Started
+PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas y perfiles. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte por configuración (basquetbol incluido como prueba).
 
-First, run the development server:
+**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA) · Zod · Vitest.
+
+## Arquitectura en 4 reglas
+
+1. **`game_events` es la fuente única de verdad.** Append-only; cada acción del partido es una fila. Correcciones = evento `correction` que anula al referenciado. Protegido por RLS (sin políticas de UPDATE/DELETE) y por trigger `forbid_change`.
+2. **Cada deporte es configuración, no código.** `sports.config` (jsonb) cumple el schema Zod de [lib/engine/sport-config.ts](lib/engine/sport-config.ts): tipos de evento, efecto en el marcador, periodos, desempates y stats por jugador. Agregar un deporte = insertar una fila.
+3. **Standings y stats siempre derivados.** La vista materializada `standings` agrega crudo desde eventos; el orden y los desempates viven SOLO en [lib/engine/standings.ts](lib/engine/standings.ts) (una implementación, con pruebas). `games.home_score/away_score` es caché derivado, jamás fuente.
+4. **Multi-tenant por RLS.** `organizations → leagues → seasons → divisions → teams → rosters → games`. Roles en `organization_members`; los permisos se aplican en Postgres ([supabase/migrations/20260716001100_rls_policies.sql](supabase/migrations/20260716001100_rls_policies.sql)), no solo en UI. Mutaciones administrativas quedan en `audit_log` vía trigger.
+
+## Desarrollo
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev          # http://localhost:3000
+pnpm test         # pruebas del motor (no requieren base de datos)
+pnpm typecheck
+pnpm lint
+pnpm build        # genera también el service worker (public/sw.js)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Las pruebas del motor calculan marcador, standings (con desempates head-to-head y diferencial) y estadísticas por jugador desde los datos seed, para softbol y basquetbol — sin tocar la red.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Conectar a Supabase Cloud
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+No se requiere Docker. Con un proyecto creado en [supabase.com](https://supabase.com):
 
-## Learn More
+```bash
+pnpm dlx supabase login
+pnpm dlx supabase link --project-ref TU-PROJECT-REF
+pnpm dlx supabase db push        # aplica las 12 migraciones
+```
 
-To learn more about Next.js, take a look at the following resources:
+Para sembrar datos de demostración, pega el contenido de [supabase/seed.sql](supabase/seed.sql) en el SQL Editor del dashboard (o `pnpm dlx supabase db push --include-seed` si tu CLI lo soporta). Después copia `.env.example` a `.env.local` y llena la URL y la anon key del proyecto.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+> **Nota sobre el usuario seed:** el seed inserta un usuario ficticio en `auth.users` (`seed-admin@alvsport.mx`) porque `game_events.created_by` y `organization_members` lo requieren. Si tu proyecto rechaza ese insert, crea un usuario real en Authentication → Users y reemplaza el UUID `a0000000-0000-4000-8000-000000000001` en el seed (o regenera con `pnpm seed:generate` tras cambiar `SEED_ADMIN_USER_ID` en [lib/seed-data/ids.ts](lib/seed-data/ids.ts)).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Seeds y fixtures: una sola fuente
 
-## Deploy on Vercel
+Los datos seed viven como objetos TypeScript en [lib/seed-data/](lib/seed-data/). De ahí salen **las dos cosas**:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `supabase/seed.sql` — generado con `pnpm seed:generate` (determinista; no editar a mano).
+- Los fixtures de las pruebas de Vitest.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Así, lo que prueban las pruebas es exactamente lo que se siembra.
+
+## Agregar un deporte nuevo (sin tocar el motor)
+
+1. Escribe el objeto de configuración que cumpla `sportConfigSchema` (usa [lib/seed-data/basketball-config.ts](lib/seed-data/basketball-config.ts) como plantilla): tipos de evento con `scoreDelta` y `playerStats`, estructura de periodos, `pointsFor` y `tiebreakers`.
+2. Inserta la fila en `sports` (`key`, `name`, `config`).
+3. Listo: mesa de anotación, marcador, standings y stats funcionan con la nueva config. La guía completa con demostración (voleibol) llega en la Fase 5.
+
+## Estructura
+
+```
+app/                  # App Router (server components por defecto)
+components/ui/        # shadcn/ui
+lib/engine/           # Motor puro: marcador, standings, stats (con pruebas)
+lib/seed-data/        # Fuente única: seeds SQL + fixtures de pruebas
+lib/supabase/         # Clientes browser/server/middleware (@supabase/ssr)
+scripts/              # generate-seed.ts
+supabase/migrations/  # 12 migraciones versionadas (RLS en todas las tablas)
+supabase/seed.sql     # Generado — no editar a mano
+```
+
+## Fases
+
+- **Fase 0 (esta):** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
+- Fase 1: mesa de anotación (offline-first) + Realtime.
+- Fase 2: sitio público estilo Sofascore.
+- Fase 3: panel administrativo + pagos (Mercado Pago).
+- Fase 4: Web Push + resúmenes con IA.
+- Fase 5: endurecimiento (pruebas RLS, rate limiting, guía multi-deporte).
