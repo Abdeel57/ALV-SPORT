@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
 export default function Home() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6">
@@ -9,7 +12,9 @@ export default function Home() {
         El sistema operativo de tu liga: calendario, marcadores en vivo,
         estadísticas y tablas de posiciones.
       </p>
-      <p className="text-sm text-muted-foreground/60">Próximamente</p>
+      <Button variant="outline" render={<Link href="/demo" />}>
+        Ver demo con datos seed
+      </Button>
     </main>
   );
 }
