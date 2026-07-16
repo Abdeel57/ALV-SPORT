@@ -16,6 +16,8 @@ export interface GameMeta {
   half: "top" | "bottom" | null;
   /** Por teamId: ids de jugadores titulares en orden al bat. */
   lineups: Record<string, string[]>;
+  /** Equipo activo en el riel (clave para deportes sin innings). */
+  activeTeamId?: string | null;
   updatedAt: string;
 }
 

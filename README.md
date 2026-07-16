@@ -66,10 +66,19 @@ supabase/migrations/  # 12 migraciones versionadas (RLS en todas las tablas)
 supabase/seed.sql     # Generado — no editar a mano
 ```
 
+## Mesa de anotación (Fase 1)
+
+- **`/anotador`** — lista de partidos asignados al anotador autenticado (rol vía `game_assignments`).
+- **`/anotador/[gameId]`** — flujo completo: confirmar alineaciones (titulares + orden al bat) → `start_game()` → pantalla de anotación → finalizar con doble confirmación → `finalize_game()` (deriva el caché de marcador y refresca standings).
+- **`/anotador/demo`** — la misma mesa, 100% local con el partido seed (sin Supabase): ideal para probar el modo offline.
+- **`/partido/[gameId]`** — marcador público en vivo vía Realtime.
+
+**Offline-first:** cada evento se escribe primero en IndexedDB (`lib/offline/`) con UUID generado en cliente; el sync engine sube la cola **en orden** con upsert idempotente (`ignoreDuplicates`) — reintentar jamás duplica. Si la app se cierra a media anotación, al reabrir se recupera la cola y el punto exacto del partido. Los botones de acción se generan desde `sports.config`: cero código específico de softbol.
+
 ## Fases
 
-- **Fase 0 (esta):** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
-- Fase 1: mesa de anotación (offline-first) + Realtime.
+- **Fase 0:** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
+- **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅ (verificación end-to-end contra Supabase pendiente de conectar el proyecto cloud)
 - Fase 2: sitio público estilo Sofascore.
 - Fase 3: panel administrativo + pagos (Mercado Pago).
 - Fase 4: Web Push + resúmenes con IA.

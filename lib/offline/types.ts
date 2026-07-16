@@ -43,6 +43,6 @@ export type QueueAction =
   | { type: "enqueue"; event: QueuedEventInput }
   | { type: "mark_synced"; ids: readonly string[] }
   | { type: "mark_failed"; ids: readonly string[]; error: string }
-  | { type: "prune_synced" };
+  | { type: "prune_synced"; ids?: readonly string[] };
 
 export type ConnectionStatus = "synced" | "pending" | "offline";

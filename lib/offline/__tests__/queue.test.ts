@@ -98,6 +98,43 @@ describe("queueReducer — sincronización y reintentos", () => {
     expect(state.events.map((e) => e.id)).toEqual(["a", "b"]);
     expect(pendingEvents(state).map((e) => e.id)).toEqual(["b"]);
   });
+
+  it("hydrate FUSIONA: un evento anotado antes de terminar la hidratación sobrevive", () => {
+    // El anotador toca una acción mientras loadQueuedEvents sigue en vuelo.
+    const tapped = enqueue(initialQueueState, "nuevo"); // localSeq 1 en memoria
+    const persisted: QueuedEvent[] = [
+      { ...makeInput("a"), status: "synced", localSeq: 1, attempts: 0, lastError: null },
+      { ...makeInput("b"), status: "pending", localSeq: 2, attempts: 0, lastError: null },
+    ];
+    const state = queueReducer(tapped, { type: "hydrate", events: persisted });
+    // Persistidos primero; el evento en memoria se re-secuencia al final.
+    expect(state.events.map((e) => [e.id, e.localSeq])).toEqual([
+      ["a", 1],
+      ["b", 2],
+      ["nuevo", 3],
+    ]);
+    expect(pendingEvents(state).map((e) => e.id)).toEqual(["b", "nuevo"]);
+  });
+
+  it("hydrate no duplica cuando el mismo id existe en memoria y persistido", () => {
+    const tapped = enqueue(initialQueueState, "a");
+    const persisted: QueuedEvent[] = [
+      { ...makeInput("a"), status: "synced", localSeq: 5, attempts: 1, lastError: null },
+    ];
+    const state = queueReducer(tapped, { type: "hydrate", events: persisted });
+    expect(state.events).toHaveLength(1);
+    expect(state.events[0]?.status).toBe("synced"); // gana la versión persistida
+  });
+
+  it("prune_synced con ids poda solo los confirmados", () => {
+    let state = enqueue(initialQueueState, "a", "b", "c");
+    state = queueReducer(state, { type: "mark_synced", ids: ["a", "b"] });
+    state = queueReducer(state, { type: "prune_synced", ids: ["a"] });
+    // "b" sigue synced (sin confirmar por el servidor); "c" sigue pending.
+    expect(state.events.map((e) => e.id)).toEqual(["b", "c"]);
+    state = queueReducer(state, { type: "prune_synced" });
+    expect(state.events.map((e) => e.id)).toEqual(["c"]);
+  });
 });
 
 describe("connectionStatus", () => {

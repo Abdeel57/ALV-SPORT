@@ -40,42 +40,48 @@ function defaultIsOnline(): boolean {
 
 export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   const { store, upload, batchSize = 25, isOnline = defaultIsOnline } = options;
-  let flushing = false;
+  let inFlight: Promise<FlushResult> | null = null;
 
-  async function flush(): Promise<FlushResult> {
-    // Single-flight: un flush concurrente es un no-op, no un duplicado.
-    if (flushing) return { uploaded: 0, error: null };
-    if (!isOnline()) return { uploaded: 0, error: null };
-
-    flushing = true;
+  async function doFlush(): Promise<FlushResult> {
     let uploaded = 0;
-    try {
-      for (;;) {
-        const batch = pendingEvents(store.getState()).slice(0, batchSize);
-        if (batch.length === 0) return { uploaded, error: null };
-        try {
-          await upload(batch);
-          store.dispatch({ type: "mark_synced", ids: batch.map((e) => e.id) });
-          uploaded += batch.length;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          store.dispatch({
-            type: "mark_failed",
-            ids: batch.map((e) => e.id),
-            error: message,
-          });
-          return { uploaded, error: message };
-        }
+    for (;;) {
+      const batch = pendingEvents(store.getState()).slice(0, batchSize);
+      if (batch.length === 0) return { uploaded, error: null };
+      try {
+        await upload(batch);
+        store.dispatch({ type: "mark_synced", ids: batch.map((e) => e.id) });
+        uploaded += batch.length;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        store.dispatch({
+          type: "mark_failed",
+          ids: batch.map((e) => e.id),
+          error: message,
+        });
+        return { uploaded, error: message };
       }
-    } finally {
-      flushing = false;
     }
+  }
+
+  function flush(): Promise<FlushResult> {
+    // Single-flight ENCADENADO: un flush concurrente espera y comparte el
+    // resultado del que ya está en vuelo (jamás un no-op silencioso — un
+    // llamador como "finalizar partido" necesita esperar la subida real).
+    if (inFlight) return inFlight;
+    if (!isOnline()) return Promise.resolve({ uploaded: 0, error: null });
+
+    const run = doFlush();
+    inFlight = run;
+    void run.finally(() => {
+      inFlight = null;
+    });
+    return run;
   }
 
   return {
     flush,
     get isFlushing() {
-      return flushing;
+      return inFlight !== null;
     },
   };
 }

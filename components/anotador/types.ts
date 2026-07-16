@@ -48,4 +48,6 @@ export interface ConsoleProps {
   sportKey: string;
   sportConfig: SportConfig;
   initialEvents: ServerEventRow[];
+  /** Alineaciones ya confirmadas en el servidor (recuperación cross-device). */
+  initialLineups?: Record<string, string[]>;
 }

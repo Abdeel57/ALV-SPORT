@@ -29,7 +29,13 @@ export default function LoginPage() {
         email,
         password,
       });
-      if (authError) throw new Error(authError.message);
+      if (authError) {
+        throw new Error(
+          authError.message === "Invalid login credentials"
+            ? "Correo o contraseña incorrectos"
+            : authError.message,
+        );
+      }
       router.push("/anotador");
       router.refresh();
     } catch (caught) {

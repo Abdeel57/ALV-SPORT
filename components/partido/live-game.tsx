@@ -90,7 +90,21 @@ export function LiveGame(props: LiveGameProps) {
           if (next) setStatus(next);
         },
       )
-      .subscribe();
+      .subscribe((subscriptionStatus) => {
+        // Catch-up: lo insertado entre el fetch SSR y la suscripción (o
+        // durante una reconexión del canal) no se re-emite — refetch.
+        if (subscriptionStatus !== "SUBSCRIBED") return;
+        void supabase
+          .from("game_events")
+          .select(
+            "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id, created_by, created_at",
+          )
+          .eq("game_id", gameId)
+          .order("seq")
+          .then(({ data }) => {
+            if (data) setRows(data as ServerEventRow[]);
+          });
+      });
     return () => {
       void supabase.removeChannel(channel);
     };

@@ -19,8 +19,26 @@ function sortByLocalSeq(events: readonly QueuedEvent[]): QueuedEvent[] {
 
 export function queueReducer(state: QueueState, action: QueueAction): QueueState {
   switch (action.type) {
-    case "hydrate":
-      return { events: sortByLocalSeq(action.events) };
+    case "hydrate": {
+      // MERGE, no reemplazo: un evento anotado antes de que termine la
+      // hidratación de IndexedDB debe sobrevivir. Los persistidos van
+      // primero (su localSeq manda); los que solo existen en memoria se
+      // re-secuencian después, preservando su orden relativo.
+      const persisted = sortByLocalSeq(action.events);
+      const persistedIds = new Set(persisted.map((event) => event.id));
+      const memoryOnly = state.events.filter(
+        (event) => !persistedIds.has(event.id),
+      );
+      let nextSeq = persisted.reduce(
+        (max, event) => Math.max(max, event.localSeq),
+        0,
+      );
+      const reseeded = memoryOnly.map((event) => {
+        nextSeq += 1;
+        return { ...event, localSeq: nextSeq };
+      });
+      return { events: [...persisted, ...reseeded] };
+    }
 
     case "enqueue": {
       // Idempotente: encolar dos veces el mismo UUID es un no-op.
@@ -65,8 +83,17 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       };
     }
 
-    case "prune_synced":
-      return { events: state.events.filter((event) => event.status !== "synced") };
+    case "prune_synced": {
+      // Sin ids: poda todos los synced. Con ids: solo los synced confirmados
+      // (p. ej. ya presentes en los eventos del servidor vía Realtime).
+      const ids = action.ids ? new Set(action.ids) : null;
+      return {
+        events: state.events.filter(
+          (event) =>
+            event.status !== "synced" || (ids !== null && !ids.has(event.id)),
+        ),
+      };
+    }
   }
 }
 

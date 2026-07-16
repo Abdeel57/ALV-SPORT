@@ -168,6 +168,23 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     .eq("game_id", gameId)
     .order("seq");
 
+  // Alineaciones ya confirmadas: permiten continuar el partido desde otro
+  // dispositivo (IndexedDB local tiene prioridad si existe).
+  const { data: lineupRows } = await supabase
+    .from("game_lineups")
+    .select("team_id, player_id, batting_order")
+    .eq("game_id", gameId)
+    .eq("is_starter", true)
+    .order("batting_order", { ascending: true });
+  const initialLineups: Record<string, string[]> = {};
+  for (const row of (lineupRows ?? []) as Array<{
+    team_id: string;
+    player_id: string;
+    batting_order: number | null;
+  }>) {
+    (initialLineups[row.team_id] ??= []).push(row.player_id);
+  }
+
   return (
     <AnotadorConsole
       mode="live"
@@ -178,6 +195,7 @@ export default async function AnotadorGamePage({ params }: PageProps) {
       sportKey={league.sports.key}
       sportConfig={sportConfig}
       initialEvents={(eventRows ?? []) as ServerEventRow[]}
+      initialLineups={initialLineups}
     />
   );
 }

@@ -100,7 +100,7 @@ describe("createSyncEngine", () => {
     expect(uploaded).toEqual(["a", "b"]); // exactamente una vez cada uno
   });
 
-  it("single-flight: un flush concurrente no duplica subidas", async () => {
+  it("single-flight encadenado: un flush concurrente comparte el resultado real, sin duplicar subidas", async () => {
     const store = makeStore(["a", "b"]);
     const uploaded: string[] = [];
     let release: (() => void) | undefined;
@@ -118,10 +118,36 @@ describe("createSyncEngine", () => {
     });
     const first = engine.flush();
     const second = engine.flush(); // entra mientras el primero está en vuelo
+    expect(engine.isFlushing).toBe(true);
     release?.();
     const [r1, r2] = await Promise.all([first, second]);
     expect(uploaded).toEqual(["a", "b"]); // una sola vez
-    expect(r1.uploaded + r2.uploaded).toBe(2);
+    // Ambos llamadores ven el resultado REAL del flush (no un no-op vacío):
+    // crítico para "finalizar partido", que espera la subida completa.
+    expect(r1).toEqual({ uploaded: 2, error: null });
+    expect(r2).toEqual({ uploaded: 2, error: null });
+    expect(engine.isFlushing).toBe(false);
+  });
+
+  it("el estado del store se lee sincrónicamente tras cada dispatch (sin re-subir lotes)", async () => {
+    // Reproduce el contrato que el adaptador de React DEBE cumplir: si
+    // getState no refleja mark_synced de inmediato, el mismo lote se
+    // subiría dos veces. makeStore es síncrono (como createQueueStore).
+    const store = makeStore(["a", "b", "c", "d"]);
+    const batches: string[][] = [];
+    const engine = createSyncEngine({
+      store,
+      batchSize: 2,
+      isOnline: () => true,
+      upload: async (events) => {
+        batches.push(events.map((e) => e.id));
+      },
+    });
+    await engine.flush();
+    expect(batches).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]); // cada lote exactamente una vez
   });
 
   it("sin conexión no intenta subir nada", async () => {

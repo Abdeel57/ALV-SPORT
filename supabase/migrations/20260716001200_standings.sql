@@ -12,11 +12,10 @@
 
 -- Capa 1: marcador por equipo por juego.
 -- Ambos lados del juego aparecen aunque no hayan anotado (score 0).
--- Correcciones: un evento anulado por una corrección vigente no cuenta;
--- una corrección anulada por otra corrección revive al original (la SQL
--- resuelve cadenas hasta profundidad 2; cadenas más largas se rechazan en
--- el boundary de la API en Fase 1 — el motor TS sí resuelve cualquier
--- profundidad).
+-- Correcciones: un evento anulado por una corrección vigente no cuenta.
+-- El trigger validate_correction (migración game_flow) garantiza que una
+-- corrección pertenece al MISMO juego que su objetivo y que no puede
+-- corregir a otra corrección, así que la resolución aquí es exacta.
 create view public.game_team_scores as
 with sides as (
   select g.id as game_id, g.season_id, g.division_id, g.home_team_id as team_id
@@ -46,13 +45,8 @@ event_scores as (
       select 1
       from public.game_events c
       where c.event_type = 'correction'
+        and c.game_id = ge.game_id
         and c.corrects_event_id = ge.id
-        and not exists (
-          select 1
-          from public.game_events c2
-          where c2.event_type = 'correction'
-            and c2.corrects_event_id = c.id
-        )
     )
   group by ge.game_id, ge.team_id
 )
@@ -110,7 +104,10 @@ create unique index standings_unique_idx
 -- capa pública filtrada (capa 3).
 revoke all on public.standings from anon, authenticated;
 
--- Se invoca al finalizar un partido (finalize_game(), Fase 1) o manualmente.
+-- Se invoca desde finalize_game()/rederive_game_score() (security definer).
+-- NO usa CONCURRENTLY: Postgres lo prohíbe dentro de una función (siempre
+-- corre en transacción). El refresh no-concurrente toma un lock exclusivo
+-- breve — aceptable a esta escala; si estorba, moverlo a pg_cron.
 create or replace function public.refresh_standings()
 returns void
 language plpgsql
@@ -118,12 +115,13 @@ security definer
 set search_path = public
 as $$
 begin
-  refresh materialized view concurrently public.standings;
+  refresh materialized view public.standings;
 end;
 $$;
 
-revoke all on function public.refresh_standings() from public, anon;
-grant execute on function public.refresh_standings() to authenticated;
+-- Solo las funciones internas (security definer, dueño postgres) la llaman:
+-- exponerla a authenticated sería un vector de DoS sobre la matview.
+revoke all on function public.refresh_standings() from public, anon, authenticated;
 
 -- Capa 3: vista pública (con derechos del dueño, por eso filtra
 -- explícitamente a ligas publicadas; no expone nada más).

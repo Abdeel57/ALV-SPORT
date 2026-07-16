@@ -27,6 +27,8 @@ interface ScoringScreenProps {
   half: "top" | "bottom" | null;
   status: ConnectionStatus;
   pendingCount: number;
+  /** Motivo del último fallo de sincronización, si lo hay. */
+  syncError: string | null;
   busy: boolean;
   error: string | null;
 }
@@ -74,6 +76,7 @@ export function ScoringScreen(props: ScoringScreenProps) {
     half,
     status,
     pendingCount,
+    syncError,
     busy,
     error,
   } = props;
@@ -142,6 +145,12 @@ export function ScoringScreen(props: ScoringScreenProps) {
           </div>
           <SyncIndicator status={status} pendingCount={pendingCount} />
         </div>
+        {syncError && pendingCount > 0 && (
+          <p className="mx-auto w-full max-w-6xl px-4 pb-2 text-xs text-destructive">
+            La sincronización está fallando: {syncError}. Se reintenta
+            automáticamente; tus eventos siguen guardados en este dispositivo.
+          </p>
+        )}
         <div className="bg-brand-gradient h-0.5 w-full" aria-hidden />
       </header>
 
@@ -155,7 +164,7 @@ export function ScoringScreen(props: ScoringScreenProps) {
                 type="button"
                 onClick={() => onSelectTeam(team.id)}
                 aria-pressed={team.id === activeTeamId}
-                className={`flex min-h-11 items-center justify-center gap-2 rounded-lg border px-2 text-sm transition-colors ${
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-lg border px-2 text-sm transition-colors ${
                   team.id === activeTeamId
                     ? "border-brand-amber/60 bg-secondary font-semibold"
                     : "border-border text-muted-foreground hover:bg-muted"
@@ -307,8 +316,7 @@ export function ScoringScreen(props: ScoringScreenProps) {
                   </span>
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="min-h-9"
+                    className="min-h-11"
                     disabled={busy}
                     onClick={() => onCorrect(event.id)}
                   >
