@@ -46,10 +46,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es-MX" className="dark">
-      <body className={`${inter.variable} ${kanit.variable} antialiased`}>
-        {children}
-      </body>
+    <html
+      lang="es-MX"
+      className={`dark ${inter.variable} ${kanit.variable}`}
+    >
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
