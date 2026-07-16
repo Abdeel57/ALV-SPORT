@@ -87,11 +87,25 @@ Mobile-first (390px primero), tema oscuro ALV, es-MX:
 
 La capa de datos ([lib/data/](lib/data/)) tiene dos proveedores con el mismo contrato: **Supabase** (con Realtime) cuando hay proyecto configurado, y **seed** (calculado con el motor, sin red) cuando no — misma UI en ambos casos. Lighthouse mobile: home 97/100, partido 93/100 (Performance/Accesibilidad).
 
+## Panel administrativo (Fase 3)
+
+`/admin` — protegido para `org_admin`/`season_manager`, mobile-first (nav inferior en móvil, sidebar en desktop):
+
+- **Dashboard**: partidos de hoy, pendientes (pagos por confirmar, sanciones activas, partidos sin anotador) y accesos rápidos.
+- **CRUDs** con validación Zod es-MX: temporadas, divisiones, equipos (escudo/color a Storage), jugadores (foto, roster con elegibilidad), sedes/canchas, asignación de anotadores/árbitros por correo.
+- **Generador de calendario**: round-robin (motor puro, [lib/engine/schedule.ts](lib/engine/schedule.ts), con pruebas) con canchas/horarios/descanso mínimo/doble vuelta → vista previa → publicar → ajuste manual.
+- **Inscripciones y pagos**: registrar → aprobar → Mercado Pago (checkout + webhook `/api/webhooks/mercadopago`) o efectivo con nota.
+- **Sanciones**: por jugador con partidos derivados de juegos finalizados; un suspendido no puede ser titular en la mesa (bloqueado en RLS y en UI).
+- **Noticias y patrocinadores**: se reflejan en el sitio público (portada, partido, footer).
+- **Auditoría** filtrable (solo org_admin) sobre `audit_log`.
+
+Mercado Pago requiere `MP_ACCESS_TOKEN` y `SUPABASE_SERVICE_ROLE_KEY` (ver `.env.example`); sin ellos, el flujo de efectivo funciona igual.
+
 ## Fases
 
 - **Fase 0:** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
 - **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅
-- **Fase 2:** sitio público estilo Sofascore. ✅ (Realtime <2s y verificación e2e pendientes de conectar el proyecto cloud)
-- Fase 3: panel administrativo + pagos (Mercado Pago).
+- **Fase 2:** sitio público estilo Sofascore. ✅
+- **Fase 3:** panel administrativo + pagos (Mercado Pago). ✅ (el criterio de los 10 minutos se corre en vivo al conectar el proyecto cloud)
 - Fase 4: Web Push + resúmenes con IA.
 - Fase 5: endurecimiento (pruebas RLS, rate limiting, guía multi-deporte).

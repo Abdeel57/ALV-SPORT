@@ -168,6 +168,13 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     .eq("game_id", gameId)
     .order("seq");
 
+  // Suspendidos por sanción: la mesa los deshabilita como titulares (y las
+  // políticas de game_lineups lo rechazan de todos modos).
+  const { data: sanctionedIds } = await supabase.rpc(
+    "sanctioned_players_for_game",
+    { p_game: gameId },
+  );
+
   // Alineaciones ya confirmadas: permiten continuar el partido desde otro
   // dispositivo (IndexedDB local tiene prioridad si existe).
   const { data: lineupRows } = await supabase
@@ -196,6 +203,7 @@ export default async function AnotadorGamePage({ params }: PageProps) {
       sportConfig={sportConfig}
       initialEvents={(eventRows ?? []) as ServerEventRow[]}
       initialLineups={initialLineups}
+      sanctionedPlayerIds={((sanctionedIds ?? []) as unknown as string[]) ?? []}
     />
   );
 }

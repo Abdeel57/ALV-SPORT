@@ -50,4 +50,6 @@ export interface ConsoleProps {
   initialEvents: ServerEventRow[];
   /** Alineaciones ya confirmadas en el servidor (recuperación cross-device). */
   initialLineups?: Record<string, string[]>;
+  /** Jugadores con sanción activa: no pueden ser titulares. */
+  sanctionedPlayerIds?: string[];
 }

@@ -548,6 +548,7 @@ export function AnotadorConsole(props: ConsoleProps) {
         awayTeam={awayTeam}
         isInnings={isInnings}
         initialLineups={lineups}
+        sanctionedPlayerIds={props.sanctionedPlayerIds ?? []}
         busy={busy}
         error={actionError}
         demoMode={mode === "demo"}

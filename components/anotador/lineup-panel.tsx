@@ -12,6 +12,8 @@ interface LineupPanelProps {
   /** En innings el orden de selección ES el orden al bat. */
   isInnings: boolean;
   initialLineups: Record<string, string[]>;
+  /** Suspendidos por sanción: no pueden ser titulares (también lo rechaza RLS). */
+  sanctionedPlayerIds: string[];
   busy: boolean;
   error: string | null;
   demoMode: boolean;
@@ -22,11 +24,13 @@ function TeamLineup({
   team,
   selected,
   isInnings,
+  sanctioned,
   onToggle,
 }: {
   team: ConsoleTeam;
   selected: string[];
   isInnings: boolean;
+  sanctioned: ReadonlySet<string>;
   onToggle: (playerId: string) => void;
 }) {
   return (
@@ -48,16 +52,20 @@ function TeamLineup({
         {team.roster.map((player) => {
           const order = selected.indexOf(player.playerId);
           const isSelected = order >= 0;
+          const isSanctioned = sanctioned.has(player.playerId);
           return (
             <button
               key={player.playerId}
               type="button"
+              disabled={isSanctioned}
               onClick={() => onToggle(player.playerId)}
               aria-pressed={isSelected}
               className={`flex min-h-14 items-center gap-3 rounded-lg border px-3 text-left transition-colors ${
-                isSelected
-                  ? "border-brand-amber/60 bg-secondary"
-                  : "border-border hover:bg-muted"
+                isSanctioned
+                  ? "cursor-not-allowed border-destructive/30 opacity-60"
+                  : isSelected
+                    ? "border-brand-amber/60 bg-secondary"
+                    : "border-border hover:bg-muted"
               }`}
             >
               <span className="w-8 text-center font-display text-lg tabular-nums text-muted-foreground">
@@ -66,10 +74,16 @@ function TeamLineup({
               <span className="flex-1 truncate">
                 {player.firstName} {player.lastName}
               </span>
-              {isSelected && (
-                <Badge className="tabular-nums">
-                  {isInnings ? `Bat ${order + 1}` : "Titular"}
+              {isSanctioned ? (
+                <Badge variant="outline" className="border-destructive/50 text-destructive">
+                  Suspendido
                 </Badge>
+              ) : (
+                isSelected && (
+                  <Badge className="tabular-nums">
+                    {isInnings ? `Bat ${order + 1}` : "Titular"}
+                  </Badge>
+                )
               )}
             </button>
           );
@@ -84,11 +98,13 @@ export function LineupPanel({
   awayTeam,
   isInnings,
   initialLineups,
+  sanctionedPlayerIds,
   busy,
   error,
   demoMode,
   onConfirm,
 }: LineupPanelProps) {
+  const sanctioned = new Set(sanctionedPlayerIds);
   const [selections, setSelections] = useState<Record<string, string[]>>(() => ({
     [awayTeam.id]: initialLineups[awayTeam.id] ?? [],
     [homeTeam.id]: initialLineups[homeTeam.id] ?? [],
@@ -129,12 +145,14 @@ export function LineupPanel({
           team={awayTeam}
           selected={awaySelected}
           isInnings={isInnings}
+          sanctioned={sanctioned}
           onToggle={toggle(awayTeam.id)}
         />
         <TeamLineup
           team={homeTeam}
           selected={homeSelected}
           isInnings={isInnings}
+          sanctioned={sanctioned}
           onToggle={toggle(homeTeam.id)}
         />
       </div>

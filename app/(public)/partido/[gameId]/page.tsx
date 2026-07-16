@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { EmptyState } from "@/components/public/bits";
 import { GameView } from "@/components/partido/game-view";
+import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { getPublicData } from "@/lib/data";
+import { getSponsors } from "@/lib/data/extras";
 
 /**
  * SSR/ISR: los partidos finalizados se sirven estáticos con revalidación;
@@ -40,7 +42,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function PartidoPage({ params }: PageProps) {
   const { gameId } = await params;
   const provider = getPublicData();
-  const detail = await provider.getGameDetail(gameId);
+  const [detail, gameSponsors] = await Promise.all([
+    provider.getGameDetail(gameId),
+    getSponsors("game"),
+  ]);
 
   if (!detail) {
     return (
@@ -52,5 +57,14 @@ export default async function PartidoPage({ params }: PageProps) {
     );
   }
 
-  return <GameView detail={detail} realtime={provider.isLive} />;
+  return (
+    <>
+      <GameView detail={detail} realtime={provider.isLive} />
+      {gameSponsors.length > 0 && (
+        <div className="mx-auto w-full max-w-4xl px-4 pb-8">
+          <SponsorStrip sponsors={gameSponsors} />
+        </div>
+      )}
+    </>
+  );
 }

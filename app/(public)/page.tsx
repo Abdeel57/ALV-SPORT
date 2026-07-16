@@ -4,8 +4,10 @@ import {
   SectionTitle,
 } from "@/components/public/bits";
 import { GameCard } from "@/components/public/game-card";
+import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
+import { getPublishedNews, getSponsors } from "@/lib/data/extras";
 
 export const revalidate = 60;
 
@@ -15,7 +17,11 @@ interface HomeProps {
 
 export default async function Home({ searchParams }: HomeProps) {
   const { liga } = await searchParams;
-  const data = await getPublicData().getHome(liga);
+  const [data, homeSponsors, news] = await Promise.all([
+    getPublicData().getHome(liga),
+    getSponsors("home"),
+    getPublishedNews(3),
+  ]);
 
   if (!data) {
     return (
@@ -117,6 +123,30 @@ export default async function Home({ searchParams }: HomeProps) {
           </>
         )}
       </section>
+
+      {news.length > 0 && (
+        <section aria-labelledby="noticias" className="flex flex-col gap-3">
+          <SectionTitle>
+            <span id="noticias">Noticias</span>
+          </SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {news.map((item) => (
+              <article key={item.id} className="flex flex-col gap-2 overflow-hidden rounded-xl border bg-card">
+                {item.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.imageUrl} alt="" className="h-32 w-full object-cover" />
+                )}
+                <div className="flex flex-col gap-1 px-4 pt-2 pb-4">
+                  <h3 className="font-display text-lg leading-snug">{item.title}</h3>
+                  <p className="line-clamp-3 text-sm text-muted-foreground">{item.body}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <SponsorStrip sponsors={homeSponsors} />
 
       <section aria-labelledby="destacados" className="flex flex-col gap-3">
         <SectionTitle>

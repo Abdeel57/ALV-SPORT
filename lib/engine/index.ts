@@ -4,3 +4,4 @@ export * from "./corrections";
 export * from "./score";
 export * from "./standings";
 export * from "./player-stats";
+export * from "./schedule";

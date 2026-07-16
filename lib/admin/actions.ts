@@ -1,0 +1,535 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import type { z } from "zod";
+import { requireAdmin, type AdminContext } from "./auth";
+import { createMpPreference } from "./mercadopago";
+import {
+  assignmentSchema,
+  cashPaymentSchema,
+  courtSchema,
+  divisionSchema,
+  formDataToObject,
+  gameUpdateSchema,
+  newsSchema,
+  playerSchema,
+  registrationCreateSchema,
+  rosterAssignSchema,
+  sanctionSchema,
+  scheduleConfigSchema,
+  seasonSchema,
+  sponsorSchema,
+  teamSchema,
+  venueSchema,
+} from "./schemas";
+import { assignSlots, generateRoundRobin } from "@/lib/engine";
+
+async function ctx(): Promise<AdminContext> {
+  const context = await requireAdmin();
+  if (!context) redirect("/admin");
+  return context;
+}
+
+function fail(path: string, message: string): never {
+  redirect(`${path}?error=${encodeURIComponent(message)}`);
+}
+
+function done(path: string): never {
+  revalidatePath(path);
+  revalidatePath("/admin");
+  redirect(`${path}?ok=1`);
+}
+
+function firstIssue(error: z.ZodError): string {
+  return error.issues[0]?.message ?? "Datos inválidos";
+}
+
+function parse<T>(
+  schema: z.ZodType<T>,
+  formData: FormData,
+  path: string,
+): T {
+  const result = schema.safeParse(formDataToObject(formData));
+  if (!result.success) fail(path, firstIssue(result.error));
+  return result.data;
+}
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+async function uploadImage(
+  context: AdminContext,
+  bucket: string,
+  formData: FormData,
+  field: string,
+  path: string,
+): Promise<string | null> {
+  const file = formData.get(field);
+  if (!(file instanceof File) || file.size === 0) return null;
+  if (file.size > MAX_IMAGE_BYTES) fail(path, "La imagen no debe exceder 4 MB");
+  if (!file.type.startsWith("image/")) fail(path, "El archivo debe ser una imagen");
+  const ext =
+    (file.name.split(".").pop() ?? "png").toLowerCase().replace(/[^a-z0-9]/g, "") ||
+    "png";
+  const objectPath = `${context.organizationId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await context.supabase.storage
+    .from(bucket)
+    .upload(objectPath, file, { contentType: file.type });
+  if (error) fail(path, `No se pudo subir la imagen: ${error.message}`);
+  return context.supabase.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl;
+}
+
+async function upsertRow(
+  context: AdminContext,
+  table: string,
+  id: string | undefined,
+  row: Record<string, unknown>,
+  path: string,
+): Promise<void> {
+  const query = id
+    ? context.supabase.from(table).update(row).eq("id", id)
+    : context.supabase.from(table).insert(row);
+  const { error } = await query;
+  if (error) fail(path, error.message);
+}
+
+async function deleteRow(
+  context: AdminContext,
+  table: string,
+  id: string,
+  path: string,
+): Promise<never> {
+  const { error } = await context.supabase.from(table).delete().eq("id", id);
+  if (error) fail(path, error.message);
+  done(path);
+}
+
+/* ---------------------- Temporadas y divisiones ---------------------- */
+
+const SEASONS = "/admin/temporadas";
+
+export async function saveSeason(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(seasonSchema, formData, SEASONS);
+  await upsertRow(context, "seasons", data.id, {
+    league_id: data.leagueId,
+    name: data.name,
+    status: data.status,
+    starts_on: data.startsOn ?? null,
+    ends_on: data.endsOn ?? null,
+  }, SEASONS);
+  done(SEASONS);
+}
+
+export async function deleteSeason(id: string): Promise<void> {
+  await deleteRow(await ctx(), "seasons", id, SEASONS);
+}
+
+export async function saveDivision(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(divisionSchema, formData, SEASONS);
+  await upsertRow(context, "divisions", data.id, {
+    season_id: data.seasonId,
+    name: data.name,
+    sort_order: data.sortOrder,
+  }, SEASONS);
+  done(SEASONS);
+}
+
+export async function deleteDivision(id: string): Promise<void> {
+  await deleteRow(await ctx(), "divisions", id, SEASONS);
+}
+
+/* --------------------------- Sedes y canchas -------------------------- */
+
+const VENUES = "/admin/sedes";
+
+export async function saveVenue(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(venueSchema, formData, VENUES);
+  await upsertRow(context, "venues", data.id, {
+    organization_id: context.organizationId,
+    name: data.name,
+    address: data.address ?? null,
+  }, VENUES);
+  done(VENUES);
+}
+
+export async function deleteVenue(id: string): Promise<void> {
+  await deleteRow(await ctx(), "venues", id, VENUES);
+}
+
+export async function saveCourt(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(courtSchema, formData, VENUES);
+  await upsertRow(context, "courts", data.id, {
+    venue_id: data.venueId,
+    name: data.name,
+  }, VENUES);
+  done(VENUES);
+}
+
+export async function deleteCourt(id: string): Promise<void> {
+  await deleteRow(await ctx(), "courts", id, VENUES);
+}
+
+/* ------------------------------- Equipos ------------------------------ */
+
+const TEAMS = "/admin/equipos";
+
+export async function saveTeam(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(teamSchema, formData, TEAMS);
+  const logoUrl = await uploadImage(context, "team-logos", formData, "logo", TEAMS);
+  const row: Record<string, unknown> = {
+    organization_id: context.organizationId,
+    division_id: data.divisionId,
+    name: data.name,
+    slug: data.slug,
+    color: data.color,
+  };
+  if (logoUrl) row.logo_url = logoUrl;
+  await upsertRow(context, "teams", data.id, row, TEAMS);
+  done(TEAMS);
+}
+
+export async function deleteTeam(id: string): Promise<void> {
+  await deleteRow(await ctx(), "teams", id, TEAMS);
+}
+
+/* ------------------------------ Jugadores ----------------------------- */
+
+const PLAYERS = "/admin/jugadores";
+
+export async function savePlayer(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(playerSchema, formData, PLAYERS);
+  const photoUrl = await uploadImage(context, "player-photos", formData, "photo", PLAYERS);
+  const row: Record<string, unknown> = {
+    organization_id: context.organizationId,
+    first_name: data.firstName,
+    last_name: data.lastName,
+    birthdate: data.birthdate ?? null,
+  };
+  if (photoUrl) row.photo_url = photoUrl;
+  await upsertRow(context, "players", data.id, row, PLAYERS);
+  done(PLAYERS);
+}
+
+export async function deletePlayer(id: string): Promise<void> {
+  await deleteRow(await ctx(), "players", id, PLAYERS);
+}
+
+export async function assignToRoster(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(rosterAssignSchema, formData, PLAYERS);
+
+  // Elegibilidad: el jugador no puede estar en otro equipo de la misma división.
+  const { data: teamRow } = await context.supabase
+    .from("teams")
+    .select("division_id")
+    .eq("id", data.teamId)
+    .single();
+  const divisionId = (teamRow as { division_id: string } | null)?.division_id;
+  if (!divisionId) fail(PLAYERS, "Equipo inválido");
+  const { data: conflict } = await context.supabase
+    .from("rosters")
+    .select("id, teams!inner(division_id)")
+    .eq("player_id", data.playerId)
+    .eq("status", "active")
+    .eq("teams.division_id", divisionId)
+    .limit(1)
+    .maybeSingle();
+  if (conflict) {
+    fail(PLAYERS, "El jugador ya está en un roster de esta división");
+  }
+
+  const { error } = await context.supabase.from("rosters").insert({
+    team_id: data.teamId,
+    player_id: data.playerId,
+    jersey_number: data.jerseyNumber,
+    position: data.position ?? null,
+  });
+  if (error) fail(PLAYERS, error.message);
+  done(PLAYERS);
+}
+
+export async function removeFromRoster(id: string): Promise<void> {
+  await deleteRow(await ctx(), "rosters", id, PLAYERS);
+}
+
+/* ------------------------------ Calendario ---------------------------- */
+
+const SCHEDULE = "/admin/calendario";
+
+export async function publishSchedule(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const generatePath = "/admin/calendario/generar";
+  const data = parse(scheduleConfigSchema, formData, generatePath);
+
+  const { data: teamRows } = await context.supabase
+    .from("teams")
+    .select("id")
+    .eq("division_id", data.divisionId);
+  const teamIds = ((teamRows ?? []) as { id: string }[]).map((row) => row.id);
+  if (teamIds.length < 2) fail(generatePath, "La división necesita al menos 2 equipos");
+
+  const { data: divisionRow } = await context.supabase
+    .from("divisions")
+    .select("season_id")
+    .eq("id", data.divisionId)
+    .single();
+  const seasonId = (divisionRow as { season_id: string } | null)?.season_id;
+  if (!seasonId) fail(generatePath, "División inválida");
+
+  const { data: courtRows } = await context.supabase
+    .from("courts")
+    .select("id, venue_id")
+    .in("id", data.courtIds);
+  const venueByCourt = new Map(
+    ((courtRows ?? []) as { id: string; venue_id: string }[]).map((row) => [
+      row.id,
+      row.venue_id,
+    ]),
+  );
+
+  const fixtures = assignSlots(
+    generateRoundRobin(teamIds, { doubleRound: data.doubleRound }),
+    {
+      startDate: data.startDate,
+      weekdays: data.weekdays,
+      times: data.times,
+      courtIds: data.courtIds,
+      minRestDays: data.minRestDays,
+    },
+  );
+
+  const rows = fixtures.map((fixture) => ({
+    season_id: seasonId,
+    division_id: data.divisionId,
+    home_team_id: fixture.homeTeamId,
+    away_team_id: fixture.awayTeamId,
+    court_id: fixture.courtId,
+    venue_id: venueByCourt.get(fixture.courtId) ?? null,
+    scheduled_at: fixture.scheduledAt,
+    status: "scheduled",
+  }));
+  const { error } = await context.supabase.from("games").insert(rows);
+  if (error) fail(generatePath, error.message);
+  done(SCHEDULE);
+}
+
+export async function updateGame(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(gameUpdateSchema, formData, SCHEDULE);
+  const { data: courtRow } = await context.supabase
+    .from("courts")
+    .select("venue_id")
+    .eq("id", data.courtId)
+    .single();
+  const { error } = await context.supabase
+    .from("games")
+    .update({
+      scheduled_at: new Date(data.scheduledAt).toISOString(),
+      court_id: data.courtId,
+      venue_id: (courtRow as { venue_id: string } | null)?.venue_id ?? null,
+    })
+    .eq("id", data.gameId);
+  if (error) fail(SCHEDULE, error.message);
+  done(SCHEDULE);
+}
+
+export async function deleteGame(id: string): Promise<void> {
+  const context = await ctx();
+  const { error } = await context.supabase
+    .from("games")
+    .delete()
+    .eq("id", id)
+    .eq("status", "scheduled");
+  if (error) fail(SCHEDULE, error.message);
+  done(SCHEDULE);
+}
+
+export async function assignOfficial(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(assignmentSchema, formData, SCHEDULE);
+  const { data: userId, error: lookupError } = await context.supabase.rpc(
+    "user_id_by_email",
+    { p_email: data.email },
+  );
+  if (lookupError) fail(SCHEDULE, lookupError.message);
+  if (!userId) {
+    fail(SCHEDULE, `No existe un usuario con el correo ${data.email}. Pídele crear su cuenta primero.`);
+  }
+  const { error } = await context.supabase.from("game_assignments").insert({
+    game_id: data.gameId,
+    user_id: userId,
+    role: data.role,
+  });
+  if (error) fail(SCHEDULE, error.message);
+  done(SCHEDULE);
+}
+
+export async function removeAssignment(id: string): Promise<void> {
+  await deleteRow(await ctx(), "game_assignments", id, SCHEDULE);
+}
+
+/* ----------------------- Inscripciones y pagos ------------------------ */
+
+const REGISTRATIONS = "/admin/inscripciones";
+
+export async function createRegistration(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(registrationCreateSchema, formData, REGISTRATIONS);
+  const { error } = await context.supabase.from("registrations").insert({
+    season_id: data.seasonId,
+    team_id: data.teamId,
+    amount: data.amount,
+    requested_by: context.userId,
+  });
+  if (error) fail(REGISTRATIONS, error.message);
+  done(REGISTRATIONS);
+}
+
+async function setRegistrationStatus(id: string, status: string): Promise<void> {
+  const context = await ctx();
+  const { error } = await context.supabase
+    .from("registrations")
+    .update({ status })
+    .eq("id", id);
+  if (error) fail(REGISTRATIONS, error.message);
+  done(REGISTRATIONS);
+}
+
+export async function approveRegistration(id: string): Promise<void> {
+  await setRegistrationStatus(id, "approved");
+}
+
+export async function rejectRegistration(id: string): Promise<void> {
+  await setRegistrationStatus(id, "rejected");
+}
+
+export async function registerCashPayment(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(cashPaymentSchema, formData, REGISTRATIONS);
+  const { error } = await context.supabase
+    .from("registrations")
+    .update({
+      status: "paid",
+      payment_method: "cash",
+      payment_ref: data.paymentRef ?? null,
+      note: data.note,
+    })
+    .eq("id", data.registrationId);
+  if (error) fail(REGISTRATIONS, error.message);
+  done(REGISTRATIONS);
+}
+
+export async function createMpCheckout(id: string): Promise<void> {
+  const context = await ctx();
+  const { data } = await context.supabase
+    .from("registrations")
+    .select("id, amount, teams(name), seasons(name)")
+    .eq("id", id)
+    .single();
+  const registration = data as unknown as {
+    id: string;
+    amount: number | null;
+    teams: { name: string } | null;
+    seasons: { name: string } | null;
+  } | null;
+  if (!registration?.amount) {
+    fail(REGISTRATIONS, "La inscripción necesita un monto para generar el pago");
+  }
+  try {
+    const link = await createMpPreference({
+      registrationId: registration.id,
+      title: `Inscripción ${registration.teams?.name ?? ""} · ${registration.seasons?.name ?? ""}`,
+      amount: Number(registration.amount),
+    });
+    redirect(`${REGISTRATIONS}?mp_link=${encodeURIComponent(link)}`);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error) throw error;
+    fail(
+      REGISTRATIONS,
+      error instanceof Error ? error.message : "No se pudo generar el pago",
+    );
+  }
+}
+
+/* ------------------------------ Sanciones ----------------------------- */
+
+const SANCTIONS = "/admin/sanciones";
+
+export async function createSanction(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(sanctionSchema, formData, SANCTIONS);
+  const { error } = await context.supabase.from("sanctions").insert({
+    organization_id: context.organizationId,
+    player_id: data.playerId,
+    reason: data.reason,
+    games_count: data.gamesCount,
+    starts_on: data.startsOn,
+    created_by: context.userId,
+  });
+  if (error) fail(SANCTIONS, error.message);
+  done(SANCTIONS);
+}
+
+export async function cancelSanction(id: string): Promise<void> {
+  const context = await ctx();
+  const { error } = await context.supabase
+    .from("sanctions")
+    .update({ status: "canceled" })
+    .eq("id", id);
+  if (error) fail(SANCTIONS, error.message);
+  done(SANCTIONS);
+}
+
+/* ------------------------- Noticias y sponsors ------------------------ */
+
+const NEWS = "/admin/noticias";
+
+export async function saveNews(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(newsSchema, formData, NEWS);
+  const imageUrl = await uploadImage(context, "news-images", formData, "image", NEWS);
+  const row: Record<string, unknown> = {
+    organization_id: context.organizationId,
+    title: data.title,
+    body: data.body,
+    status: data.publish ? "published" : "draft",
+    published_at: data.publish ? new Date().toISOString() : null,
+    created_by: context.userId,
+  };
+  if (imageUrl) row.image_url = imageUrl;
+  await upsertRow(context, "news", data.id, row, NEWS);
+  done(NEWS);
+}
+
+export async function deleteNews(id: string): Promise<void> {
+  await deleteRow(await ctx(), "news", id, NEWS);
+}
+
+const SPONSORS = "/admin/patrocinadores";
+
+export async function saveSponsor(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(sponsorSchema, formData, SPONSORS);
+  const logoUrl = await uploadImage(context, "sponsor-logos", formData, "logo", SPONSORS);
+  const row: Record<string, unknown> = {
+    organization_id: context.organizationId,
+    name: data.name,
+    link_url: data.linkUrl,
+    placement: data.placement,
+    sort_order: data.sortOrder,
+    is_active: true,
+  };
+  if (logoUrl) row.logo_url = logoUrl;
+  await upsertRow(context, "sponsors", data.id, row, SPONSORS);
+  done(SPONSORS);
+}
+
+export async function deleteSponsor(id: string): Promise<void> {
+  await deleteRow(await ctx(), "sponsors", id, SPONSORS);
+}
