@@ -75,11 +75,23 @@ supabase/seed.sql     # Generado — no editar a mano
 
 **Offline-first:** cada evento se escribe primero en IndexedDB (`lib/offline/`) con UUID generado en cliente; el sync engine sube la cola **en orden** con upsert idempotente (`ignoreDuplicates`) — reintentar jamás duplica. Si la app se cierra a media anotación, al reabrir se recupera la cola y el punto exacto del partido. Los botones de acción se generan desde `sports.config`: cero código específico de softbol.
 
+## Sitio público (Fase 2)
+
+Mobile-first (390px primero), tema oscuro ALV, es-MX:
+
+- **`/`** — en vivo (Realtime), próximos, resultados, top de la tabla y jugadores destacados, con selector de liga.
+- **`/partido/[id]`** — header con colores oficiales, marcador por periodo y tabs Resumen / Timeline / Estadísticas / Alineaciones; EN VIVO se actualiza sin recargar.
+- **`/tabla`** — standings con los desempates del config del deporte (una sola implementación: `rankStandings` del motor).
+- **`/equipo/[slug]`** y **`/jugador/[id]`** — perfiles con racha, plantilla, stats por jornada y gráfica.
+- **`/buscar?q=`** — búsqueda global (equipos, jugadores, partidos).
+
+La capa de datos ([lib/data/](lib/data/)) tiene dos proveedores con el mismo contrato: **Supabase** (con Realtime) cuando hay proyecto configurado, y **seed** (calculado con el motor, sin red) cuando no — misma UI en ambos casos. Lighthouse mobile: home 97/100, partido 93/100 (Performance/Accesibilidad).
+
 ## Fases
 
 - **Fase 0:** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
-- **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅ (verificación end-to-end contra Supabase pendiente de conectar el proyecto cloud)
-- Fase 2: sitio público estilo Sofascore.
+- **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅
+- **Fase 2:** sitio público estilo Sofascore. ✅ (Realtime <2s y verificación e2e pendientes de conectar el proyecto cloud)
 - Fase 3: panel administrativo + pagos (Mercado Pago).
 - Fase 4: Web Push + resúmenes con IA.
 - Fase 5: endurecimiento (pruebas RLS, rate limiting, guía multi-deporte).

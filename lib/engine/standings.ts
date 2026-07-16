@@ -9,14 +9,18 @@ import type { EngineGame, EngineGameEvent, StandingRow } from "./types";
  * exista una única implementación testeable.
  */
 
-type Accumulator = Omit<StandingRow, "rank">;
+/** Agregados crudos de un equipo (lo que expone la matview `standings`). */
+export type StandingAggregate = Omit<StandingRow, "rank">;
 
-interface GameResult {
+export interface GameResultLite {
   homeTeamId: string;
   awayTeamId: string;
   homeScore: number;
   awayScore: number;
 }
+
+type Accumulator = StandingAggregate;
+type GameResult = GameResultLite;
 
 export interface ComputeStandingsOptions {
   /** Equipos a incluir aunque no tengan juegos finalizados (fila en ceros). */
@@ -74,14 +78,27 @@ export function computeStandings(
       acc.played === 0 ? 0 : (acc.wins + 0.5 * acc.ties) / acc.played;
   }
 
-  const rows = [...accumulators.values()];
+  return rankStandings([...accumulators.values()], results, config);
+}
+
+/**
+ * Ordena agregados crudos aplicando rankBy + desempates del config. Es la
+ * ÚNICA implementación de desempates: la usa computeStandings (fixtures) y
+ * el proveedor de datos que lee la matview `standings` de Postgres (los
+ * resultados por juego vienen del caché home_score/away_score).
+ */
+export function rankStandings(
+  rows: readonly StandingAggregate[],
+  results: readonly GameResultLite[],
+  config: SportConfig,
+): StandingRow[] {
   const primaryMetric =
     config.standings.rankBy === "points"
       ? (row: Accumulator) => row.points
       : (row: Accumulator) => row.winPct;
 
   const orderedClasses: Accumulator[][] = [];
-  for (const tieClass of partitionDesc(rows, primaryMetric)) {
+  for (const tieClass of partitionDesc([...rows], primaryMetric)) {
     orderedClasses.push(
       ...breakTies(tieClass, config.standings.tiebreakers, config, results),
     );
