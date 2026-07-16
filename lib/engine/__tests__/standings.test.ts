@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { basketballConfig } from "@/lib/seed-data/basketball-config";
 import { basketballGames, eventsByGameId, softballGames } from "@/lib/seed-data/games-events";
-import { gameId, teamId } from "@/lib/seed-data/ids";
+import { teamId } from "@/lib/seed-data/ids";
 import { softballConfig } from "@/lib/seed-data/softball-config";
 import { computeStandings } from "../standings";
 import type { EngineGame, EngineGameEvent } from "../types";

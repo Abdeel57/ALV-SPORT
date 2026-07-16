@@ -9,6 +9,9 @@ const withSerwist = withSerwistInit({
   disable: process.env.NODE_ENV === "development",
 });
 
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  // Hay lockfiles ajenos arriba en el árbol (C:\Users\Admin): fijar la raíz.
+  outputFileTracingRoot: process.cwd(),
+};
 
 export default withSerwist(nextConfig);

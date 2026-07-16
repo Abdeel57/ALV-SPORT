@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Saira_Condensed } from "next/font/google";
+import { Inter, Kanit } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -7,8 +7,10 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-const saira = Saira_Condensed({
-  variable: "--font-saira",
+// Display de marca: itálica condensada bold (Kanit tiene itálicas reales;
+// Saira Condensed no las ofrece en Google Fonts).
+const kanit = Kanit({
+  variable: "--font-kanit",
   subsets: ["latin"],
   weight: ["600", "700", "800"],
   style: ["normal", "italic"],
@@ -45,7 +47,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es-MX" className="dark">
-      <body className={`${inter.variable} ${saira.variable} antialiased`}>
+      <body className={`${inter.variable} ${kanit.variable} antialiased`}>
         {children}
       </body>
     </html>
