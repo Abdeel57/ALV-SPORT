@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState, SectionTitle } from "@/components/public/bits";
+import { FollowTeam } from "@/components/public/follow-team";
 import { GameCard } from "@/components/public/game-card";
 import { Badge } from "@/components/ui/badge";
 import { getPublicData } from "@/lib/data";
@@ -93,6 +94,8 @@ export default async function EquipoPage({ params }: PageProps) {
           </div>
         )}
       </section>
+
+      <FollowTeam teamId={team.id} teamName={team.name} />
 
       {streak.length > 0 && (
         <section aria-label="Racha" className="flex items-center gap-2">

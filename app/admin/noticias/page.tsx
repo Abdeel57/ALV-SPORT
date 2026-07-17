@@ -9,7 +9,7 @@ import {
   SubmitButton,
   inputClass,
 } from "@/components/admin/ui";
-import { deleteNews, saveNews } from "@/lib/admin/actions";
+import { deleteNews, regenerateAiNews, saveNews } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 
 export const metadata: Metadata = { title: "Noticias" };
@@ -21,6 +21,19 @@ interface NewsRow {
   body: string;
   status: string;
   published_at: string | null;
+  ai_generated: boolean;
+}
+
+interface AiJobRow {
+  id: string;
+  game_id: string;
+  status: string;
+  attempts: number;
+  error: string | null;
+  games: {
+    home: { name: string } | null;
+    away: { name: string } | null;
+  } | null;
 }
 
 interface PageProps {
@@ -32,17 +45,66 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const { data } = await context.supabase
-    .from("news")
-    .select("id, title, body, status, published_at")
-    .order("created_at", { ascending: false });
+  const [{ data }, { data: jobData }] = await Promise.all([
+    context.supabase
+      .from("news")
+      .select("id, title, body, status, published_at, ai_generated")
+      .order("created_at", { ascending: false }),
+    context.supabase
+      .from("ai_jobs")
+      .select(
+        "id, game_id, status, attempts, error, games(home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name))",
+      )
+      .order("created_at", { ascending: false })
+      .limit(10),
+  ]);
   const news = (data ?? []) as NewsRow[];
+  const aiJobs = (jobData ?? []) as unknown as AiJobRow[];
   const editing = news.find((item) => item.id === edit);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
       <AdminTitle>Noticias</AdminTitle>
       <Feedback ok={ok} error={error} />
+
+      {aiJobs.length > 0 && (
+        <section className="rounded-2xl border p-4">
+          <h2 className="mb-1 font-display text-xl">Crónicas generadas por IA</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Al finalizar un partido se genera un borrador automáticamente.
+            Nunca se publica solo: revísalo, edítalo y publícalo tú.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {aiJobs.map((job) => (
+              <li key={job.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">
+                  {job.games?.away?.name ?? "—"} @ {job.games?.home?.name ?? "—"}
+                  {job.error && (
+                    <span className="block truncate text-xs text-destructive">{job.error}</span>
+                  )}
+                </span>
+                <StatusChip
+                  status={
+                    job.status === "done"
+                      ? "published"
+                      : job.status === "failed"
+                        ? "rejected"
+                        : "pending"
+                  }
+                />
+                <form action={regenerateAiNews.bind(null, job.game_id)}>
+                  <button
+                    type="submit"
+                    className="min-h-11 rounded-lg border border-brand-amber/50 px-3 text-sm text-brand-amber hover:bg-brand-amber/10"
+                  >
+                    Regenerar
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="rounded-2xl border p-4">
         <h2 className="mb-3 font-display text-xl">
@@ -91,6 +153,11 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
                   {item.body.slice(0, 90)}
                 </span>
               </span>
+              {item.ai_generated && (
+                <span className="rounded-md border border-brand-amber/50 px-2 py-0.5 text-xs text-brand-amber">
+                  IA — revisar
+                </span>
+              )}
               <StatusChip status={item.status} />
               <a
                 href={`/admin/noticias?edit=${item.id}`}

@@ -101,11 +101,31 @@ La capa de datos ([lib/data/](lib/data/)) tiene dos proveedores con el mismo con
 
 Mercado Pago requiere `MP_ACCESS_TOKEN` y `SUPABASE_SERVICE_ROLE_KEY` (ver `.env.example`); sin ellos, el flujo de efectivo funciona igual.
 
+## Notificaciones y IA (Fase 4)
+
+**Web Push** — cualquier visitante con la PWA puede "Seguir" a un equipo desde su perfil (`/equipo/[slug]`): permiso → suscripción VAPID → guardada en `push_subscriptions` con preferencias por tipo (inicio / fin de periodo / resultado). El envío es 100% del servidor (`web-push`), disparado por **Database Webhooks de Supabase**; suscripciones expiradas (404/410) se eliminan solas y los envíos son idempotentes vía `push_log`.
+
+**Servicio de IA** — al finalizar un partido, un job (`ai_jobs`, reintentos máx. 3) arma el contexto estructurado desde `game_events` (marcador, línea, actuaciones, récords de temporada detectados comparando contra los máximos previos) y llama a la API de Anthropic (**claude-sonnet-4-6**, salida estructurada JSON) para generar: crónica es-MX de 2-3 párrafos, MVP con justificación estadística y jugador destacado. Se guarda como **borrador** etiquetado "IA — revisar" en Noticias — nunca se publica solo; el admin tiene botón **Regenerar**.
+
+### Configuración de la Fase 4 (tras conectar Supabase)
+
+1. **VAPID:** `npx web-push generate-vapid-keys` → llena `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+2. **Webhooks** (Dashboard → Database → Webhooks), ambos con header `x-alv-webhook-secret` = `SUPABASE_WEBHOOK_SECRET`:
+   - `games` · UPDATE → `https://TU-DOMINIO/api/hooks/game-status`
+   - `game_events` · INSERT → `https://TU-DOMINIO/api/hooks/game-events`
+3. **IA:** `ANTHROPIC_API_KEY` (solo en variables del servidor — nunca `NEXT_PUBLIC`; el endpoint de IA no está expuesto: solo corre desde los webhooks con secreto y desde la acción de admin con rol verificado).
+
+### Avisos prácticos
+
+- **iPhone:** push solo funciona con la PWA instalada desde Safari ("Agregar a inicio"). El perfil de equipo ya muestra ese banner a usuarios de iOS — no es bug.
+- **HTTPS obligatorio:** push no se puede probar en `localhost` desde un celular. Haz deploy a Vercel (un preview basta), configura las env vars ahí y prueba en dispositivo real (Chrome desktop + Android; iPhone con PWA instalada).
+- **Créditos:** la API key de Anthropic vive en el servidor y los webhooks exigen el secreto compartido — nadie puede disparar generaciones desde afuera.
+
 ## Fases
 
 - **Fase 0:** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
 - **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅
 - **Fase 2:** sitio público estilo Sofascore. ✅
-- **Fase 3:** panel administrativo + pagos (Mercado Pago). ✅ (el criterio de los 10 minutos se corre en vivo al conectar el proyecto cloud)
-- Fase 4: Web Push + resúmenes con IA.
+- **Fase 3:** panel administrativo + pagos (Mercado Pago). ✅
+- **Fase 4:** Web Push + resúmenes con IA. ✅ (verificación en dispositivo real pendiente de Supabase cloud + deploy a Vercel)
 - Fase 5: endurecimiento (pruebas RLS, rate limiting, guía multi-deporte).

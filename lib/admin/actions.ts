@@ -533,3 +533,15 @@ export async function saveSponsor(formData: FormData): Promise<void> {
 export async function deleteSponsor(id: string): Promise<void> {
   await deleteRow(await ctx(), "sponsors", id, SPONSORS);
 }
+
+/* --------------------------- IA (Fase 4) ------------------------------ */
+
+export async function regenerateAiNews(gameId: string): Promise<void> {
+  await ctx(); // solo admin/manager
+  const { runAiJob } = await import("@/lib/ai/job");
+  const result = await runAiJob(gameId, { force: true });
+  if (!result.ok) {
+    fail(NEWS, result.error ?? "No se pudo regenerar la crónica");
+  }
+  done(NEWS);
+}
