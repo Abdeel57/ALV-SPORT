@@ -9,11 +9,14 @@ import {
   SubmitButton,
   inputClass,
 } from "@/components/admin/ui";
+import { Pager } from "@/components/admin/pagination";
 import { deleteNews, regenerateAiNews, saveNews } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 
 export const metadata: Metadata = { title: "Noticias" };
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 10;
 
 interface NewsRow {
   id: string;
@@ -37,19 +40,21 @@ interface AiJobRow {
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string; edit?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; edit?: string; p?: string }>;
 }
 
 export default async function NoticiasPage({ searchParams }: PageProps) {
-  const { ok, error, edit } = await searchParams;
+  const { ok, error, edit, p } = await searchParams;
+  const page = Math.max(1, Number.parseInt(p ?? "1", 10) || 1);
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data }, { data: jobData }] = await Promise.all([
+  const [{ data, count }, { data: jobData }, { data: editData }] = await Promise.all([
     context.supabase
       .from("news")
-      .select("id, title, body, status, published_at, ai_generated")
-      .order("created_at", { ascending: false }),
+      .select("id, title, body, status, published_at, ai_generated", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
     context.supabase
       .from("ai_jobs")
       .select(
@@ -57,10 +62,18 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
       )
       .order("created_at", { ascending: false })
       .limit(10),
+    edit
+      ? context.supabase
+          .from("news")
+          .select("id, title, body, status, published_at, ai_generated")
+          .eq("id", edit)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const news = (data ?? []) as NewsRow[];
   const aiJobs = (jobData ?? []) as unknown as AiJobRow[];
-  const editing = news.find((item) => item.id === edit);
+  const editing = (editData ?? undefined) as NewsRow | undefined;
+  const total = count ?? news.length;
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
@@ -174,6 +187,8 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
           ))}
         </ul>
       )}
+
+      <Pager page={page} total={total} pageSize={PAGE_SIZE} baseHref="/admin/noticias" />
     </main>
   );
 }

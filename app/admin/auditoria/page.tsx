@@ -6,10 +6,13 @@ import {
   SubmitButton,
   inputClass,
 } from "@/components/admin/ui";
+import { Pager } from "@/components/admin/pagination";
 import { requireAdmin } from "@/lib/admin/auth";
 
 export const metadata: Metadata = { title: "Auditoría" };
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 50;
 
 interface AuditRow {
   id: number;
@@ -47,11 +50,12 @@ function summarize(row: AuditRow): string {
 }
 
 interface PageProps {
-  searchParams: Promise<{ tabla?: string; accion?: string; error?: string }>;
+  searchParams: Promise<{ tabla?: string; accion?: string; error?: string; p?: string }>;
 }
 
 export default async function AuditoriaPage({ searchParams }: PageProps) {
-  const { tabla = "", accion = "" } = await searchParams;
+  const { tabla = "", accion = "", p } = await searchParams;
+  const page = Math.max(1, Number.parseInt(p ?? "1", 10) || 1);
   const context = await requireAdmin();
   if (!context) return null;
   if (context.role !== "org_admin") {
@@ -64,13 +68,16 @@ export default async function AuditoriaPage({ searchParams }: PageProps) {
 
   let query = context.supabase
     .from("audit_log")
-    .select("id, action, table_name, record_id, actor_id, created_at, before, after")
+    .select("id, action, table_name, record_id, actor_id, created_at, before, after", {
+      count: "exact",
+    })
     .order("created_at", { ascending: false })
-    .limit(100);
+    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
   if (tabla) query = query.eq("table_name", tabla);
   if (accion) query = query.eq("action", accion);
-  const { data } = await query;
+  const { data, count } = await query;
   const rows = (data ?? []) as unknown as AuditRow[];
+  const total = count ?? rows.length;
 
   const tables = [
     "seasons", "divisions", "teams", "players", "rosters", "games",
@@ -83,7 +90,7 @@ export default async function AuditoriaPage({ searchParams }: PageProps) {
       <AdminTitle>Auditoría</AdminTitle>
       <p className="text-sm text-muted-foreground">
         Toda mutación administrativa queda registrada por triggers de la base
-        (quién, qué, antes/después). Últimos 100 movimientos.
+        (quién, qué, antes/después). {total} movimientos en total.
       </p>
 
       <form className="flex flex-wrap gap-2" action="/admin/auditoria">
@@ -132,6 +139,14 @@ export default async function AuditoriaPage({ searchParams }: PageProps) {
           ))}
         </ul>
       )}
+
+      <Pager
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        baseHref="/admin/auditoria"
+        params={{ tabla, accion }}
+      />
     </main>
   );
 }

@@ -56,21 +56,31 @@ export function computeStandings(
 
   for (const teamId of options.teamIds ?? []) ensure(teamId);
 
+  // W/L se decide con el valor de comparación del deporte (winnerBy:
+  // puntos totales o periodos/sets ganados); CF/CC siempre acumulan puntos.
+  const byPeriods = config.standings.winnerBy === "periods_won";
   const results: GameResult[] = [];
   for (const game of games) {
     if (game.status !== "finalized") continue;
     const events = eventsByGameId.get(game.id) ?? [];
     const score = computeScore(events, config);
-    const homeScore = score.byTeam[game.homeTeamId]?.total ?? 0;
-    const awayScore = score.byTeam[game.awayTeamId]?.total ?? 0;
+    const homePoints = score.byTeam[game.homeTeamId]?.total ?? 0;
+    const awayPoints = score.byTeam[game.awayTeamId]?.total ?? 0;
+    const homeCmp = byPeriods
+      ? (score.periodsWon[game.homeTeamId] ?? 0)
+      : homePoints;
+    const awayCmp = byPeriods
+      ? (score.periodsWon[game.awayTeamId] ?? 0)
+      : awayPoints;
+    // Los resultados para head-to-head usan el MISMO criterio de ganador.
     results.push({
       homeTeamId: game.homeTeamId,
       awayTeamId: game.awayTeamId,
-      homeScore,
-      awayScore,
+      homeScore: homeCmp,
+      awayScore: awayCmp,
     });
-    applyResult(ensure(game.homeTeamId), homeScore, awayScore, config);
-    applyResult(ensure(game.awayTeamId), awayScore, homeScore, config);
+    applyResult(ensure(game.homeTeamId), homePoints, awayPoints, homeCmp, awayCmp, config);
+    applyResult(ensure(game.awayTeamId), awayPoints, homePoints, awayCmp, homeCmp, config);
   }
 
   for (const acc of accumulators.values()) {
@@ -118,19 +128,21 @@ export function rankStandings(
 
 function applyResult(
   acc: Accumulator,
-  scored: number,
-  conceded: number,
+  pointsScored: number,
+  pointsConceded: number,
+  cmp: number,
+  oppCmp: number,
   config: SportConfig,
 ): void {
   acc.played += 1;
-  acc.scoreFor += scored;
-  acc.scoreAgainst += conceded;
+  acc.scoreFor += pointsScored;
+  acc.scoreAgainst += pointsConceded;
   acc.scoreDiff = acc.scoreFor - acc.scoreAgainst;
   const { pointsFor } = config.standings;
-  if (scored > conceded) {
+  if (cmp > oppCmp) {
     acc.wins += 1;
     acc.points += pointsFor.win;
-  } else if (scored < conceded) {
+  } else if (cmp < oppCmp) {
     acc.losses += 1;
     acc.points += pointsFor.loss;
   } else {

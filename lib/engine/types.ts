@@ -43,7 +43,9 @@ export interface TeamScore {
 
 export interface GameScore {
   byTeam: Record<string, TeamScore>;
-  /** `null` cuando hay empate o no hay eventos que decidan. */
+  /** Periodos/sets ganados por equipo (empatados no cuentan para nadie). */
+  periodsWon: Record<string, number>;
+  /** Según config.standings.winnerBy; `null` = empate o indecidible. */
   winnerTeamId: string | null;
 }
 

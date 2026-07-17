@@ -48,16 +48,50 @@ export function computeScore(
     team.byPeriod[period] = (team.byPeriod[period] ?? 0) + def.scoreDelta;
   }
 
+  // Periodos/sets ganados: por cada periodo con eventos, gana quien anotó
+  // más en ese periodo (empatado no suma para nadie).
+  const periodsWon: Record<string, number> = {};
+  const teamIds = Object.keys(byTeam);
+  const allPeriods = new Set<number>();
+  for (const score of Object.values(byTeam)) {
+    for (const period of Object.keys(score.byPeriod)) {
+      allPeriods.add(Number(period));
+    }
+  }
+  for (const teamId of teamIds) periodsWon[teamId] = 0;
+  for (const period of allPeriods) {
+    let best: string | null = null;
+    let bestPoints = Number.NEGATIVE_INFINITY;
+    for (const teamId of teamIds) {
+      const points = byTeam[teamId]?.byPeriod[period] ?? 0;
+      if (points > bestPoints) {
+        bestPoints = points;
+        best = teamId;
+      } else if (points === bestPoints) {
+        best = null;
+      }
+    }
+    if (best !== null) {
+      periodsWon[best] = (periodsWon[best] ?? 0) + 1;
+    }
+  }
+
+  // Ganador según la config del deporte (marcador total o periodos ganados).
+  const metric = (teamId: string): number =>
+    config.standings.winnerBy === "periods_won"
+      ? (periodsWon[teamId] ?? 0)
+      : (byTeam[teamId]?.total ?? 0);
   let winnerTeamId: string | null = null;
-  let bestTotal = Number.NEGATIVE_INFINITY;
-  for (const [teamId, score] of Object.entries(byTeam)) {
-    if (score.total > bestTotal) {
-      bestTotal = score.total;
+  let bestMetric = Number.NEGATIVE_INFINITY;
+  for (const teamId of teamIds) {
+    const value = metric(teamId);
+    if (value > bestMetric) {
+      bestMetric = value;
       winnerTeamId = teamId;
-    } else if (score.total === bestTotal) {
+    } else if (value === bestMetric) {
       winnerTeamId = null;
     }
   }
 
-  return { byTeam, winnerTeamId };
+  return { byTeam, periodsWon, winnerTeamId };
 }

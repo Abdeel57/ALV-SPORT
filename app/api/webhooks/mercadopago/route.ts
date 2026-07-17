@@ -1,6 +1,38 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchMpPayment } from "@/lib/admin/mercadopago";
+
+/**
+ * Verifica el header `x-signature` de Mercado Pago (HMAC-SHA256 sobre el
+ * manifiesto `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` con la clave
+ * secreta del webhook). Si MP_WEBHOOK_SECRET no está configurada aún, se
+ * omite la verificación — la seguridad real sigue siendo que el estado del
+ * pago se consulta de vuelta a la API de MP, nunca se cree del cuerpo.
+ */
+function verifyMpSignature(request: NextRequest): boolean {
+  const secret = process.env.MP_WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  const signature = request.headers.get("x-signature") ?? "";
+  const parts = new Map(
+    signature.split(",").map((part) => {
+      const [key, ...rest] = part.split("=");
+      return [key?.trim() ?? "", rest.join("=").trim()] as const;
+    }),
+  );
+  const ts = parts.get("ts");
+  const v1 = parts.get("v1");
+  if (!ts || !v1) return false;
+
+  const dataId = request.nextUrl.searchParams.get("data.id") ?? "";
+  const requestId = request.headers.get("x-request-id") ?? "";
+  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${ts};`;
+  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
+  const received = Buffer.from(v1, "utf8");
+  const computed = Buffer.from(expected, "utf8");
+  return received.length === computed.length && timingSafeEqual(received, computed);
+}
 
 /**
  * Webhook de Mercado Pago: al aprobarse un pago, activa la inscripción.
@@ -13,6 +45,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!serviceKey || !url) {
     return NextResponse.json({ error: "No configurado" }, { status: 503 });
+  }
+  if (!verifyMpSignature(request)) {
+    return NextResponse.json({ error: "Firma inválida" }, { status: 401 });
   }
 
   let paymentId: string | null = null;

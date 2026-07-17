@@ -58,6 +58,12 @@ export const standingsConfigSchema = z.object({
   }),
   /** Se aplican en orden dentro de grupos empatados por rankBy. */
   tiebreakers: z.array(tiebreakerSchema),
+  /**
+   * Cómo se decide el ganador de un partido: por marcador total (softbol,
+   * basquetbol) o por periodos/sets ganados (voleibol, tenis). Config, no
+   * código: el motor no conoce deportes.
+   */
+  winnerBy: z.enum(["total_score", "periods_won"]).default("total_score"),
 });
 
 export const playerStatDefSchema = z.object({

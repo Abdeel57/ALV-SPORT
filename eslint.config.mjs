@@ -24,6 +24,8 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "public/sw.js",
+      // Utilerías CommonJS de operación (corren con node, fuera del bundle).
+      "scripts/*.cjs",
     ],
   },
 ];

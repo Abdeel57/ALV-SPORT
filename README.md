@@ -1,144 +1,171 @@
 # ALV SPORT — League OS
 
-PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas y perfiles. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte por configuración (basquetbol incluido como prueba).
+PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas, perfiles, notificaciones push y crónicas con IA. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte **por configuración** — basquetbol y voleibol ya funcionan end-to-end sin una línea de código específica.
 
-**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA) · Zod · Vitest.
+**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + Storage + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA + Web Push) · Zod · Vitest · Mercado Pago · Anthropic (claude-sonnet-4-6).
 
 ## Arquitectura en 4 reglas
 
-1. **`game_events` es la fuente única de verdad.** Append-only; cada acción del partido es una fila. Correcciones = evento `correction` que anula al referenciado. Protegido por RLS (sin políticas de UPDATE/DELETE) y por trigger `forbid_change`.
-2. **Cada deporte es configuración, no código.** `sports.config` (jsonb) cumple el schema Zod de [lib/engine/sport-config.ts](lib/engine/sport-config.ts): tipos de evento, efecto en el marcador, periodos, desempates y stats por jugador. Agregar un deporte = insertar una fila.
-3. **Standings y stats siempre derivados.** La vista materializada `standings` agrega crudo desde eventos; el orden y los desempates viven SOLO en [lib/engine/standings.ts](lib/engine/standings.ts) (una implementación, con pruebas). `games.home_score/away_score` es caché derivado, jamás fuente.
-4. **Multi-tenant por RLS.** `organizations → leagues → seasons → divisions → teams → rosters → games`. Roles en `organization_members`; los permisos se aplican en Postgres ([supabase/migrations/20260716001100_rls_policies.sql](supabase/migrations/20260716001100_rls_policies.sql)), no solo en UI. Mutaciones administrativas quedan en `audit_log` vía trigger.
+1. **`game_events` es la fuente única de verdad.** Append-only; cada acción del partido es una fila (`event_type` + `payload`). Correcciones = evento `correction` que anula al referenciado (mismo partido, sin corrección-de-corrección — validado por trigger). Protegido por RLS (sin políticas de UPDATE/DELETE) y por el trigger `forbid_change`.
+2. **Cada deporte es configuración, no código.** `sports.config` (jsonb) cumple el schema Zod de [lib/engine/sport-config.ts](lib/engine/sport-config.ts): tipos de evento con su efecto en el marcador, estructura de periodos (innings/cuartos/sets), `standings.winnerBy` (`total_score` o `periods_won` — así el voleibol gana por sets aunque anote menos puntos), desempates y stats por jugador. Agregar un deporte = insertar una fila ([guía abajo](#agregar-un-deporte-nuevo-sin-tocar-el-motor)).
+3. **Standings y stats siempre derivados.** La vista `game_team_scores` y la matview `standings` agregan crudo desde eventos leyendo la config del deporte; el orden y los desempates viven SOLO en [lib/engine/standings.ts](lib/engine/standings.ts) (una implementación, con pruebas). `games.home_score/away_score` es caché derivado por `finalize_game()` / `rederive_game_score()`, jamás fuente.
+4. **Multi-tenant por RLS.** `organizations → leagues → seasons → divisions → teams → rosters → games`. Roles en `organization_members` (`org_admin`, `season_manager`, `scorekeeper`, `referee`, `team_captain`); los permisos se aplican en Postgres ([supabase/migrations/](supabase/migrations/)), no solo en UI. Toda mutación administrativa queda en `audit_log` vía triggers.
 
-## Desarrollo
+## Modelo de datos
+
+```mermaid
+erDiagram
+    organizations ||--o{ organization_members : "roles (RBAC)"
+    organizations ||--o{ leagues : ""
+    sports ||--o{ leagues : "config jsonb"
+    leagues ||--o{ seasons : ""
+    seasons ||--o{ divisions : ""
+    divisions ||--o{ teams : ""
+    teams ||--o{ rosters : ""
+    players ||--o{ rosters : ""
+    seasons ||--o{ games : ""
+    teams ||--o{ games : "home/away"
+    games ||--o{ game_events : "fuente de verdad (append-only)"
+    games ||--o{ game_assignments : "anotador/árbitro"
+    games ||--o{ game_lineups : "titulares + orden al bat"
+    seasons ||--o{ registrations : "pagos (Mercado Pago/efectivo)"
+    teams ||--o{ registrations : ""
+    players ||--o{ sanctions : "bloquean titularidad"
+    venues ||--o{ courts : ""
+    courts ||--o{ games : ""
+    teams ||--o{ push_subscriptions : "seguir equipo"
+    games ||--o{ ai_jobs : "crónicas IA (borrador)"
+    organizations ||--o{ news : ""
+    organizations ||--o{ sponsors : ""
+    organizations ||--o{ audit_log : "quién/qué/antes/después"
+
+    game_events {
+        uuid id "generado en cliente (idempotencia offline)"
+        bigint seq "orden autoritativo"
+        text event_type "definido por sports.config"
+        jsonb payload
+        int period
+        uuid corrects_event_id "solo si event_type=correction"
+    }
+    sports {
+        text key "softball | basketball | volleyball | ..."
+        jsonb config "eventTypes, periods, standings, playerStats"
+    }
+    games {
+        text status "scheduled → in_progress → finalized"
+        int home_score "CACHÉ derivado, nunca fuente"
+        int away_score "CACHÉ derivado, nunca fuente"
+    }
+```
+
+Derivados (no son tablas editables): `game_team_scores` (vista: puntos **y** periodos ganados por equipo/juego), `standings` (matview, W/L/T/puntos según `winnerBy`), `public_standings` (vista pública filtrada a ligas publicadas), `player_season_stats`.
+
+## Correr en local
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:3000
-pnpm test         # pruebas del motor (no requieren base de datos)
-pnpm typecheck
-pnpm lint
-pnpm build        # genera también el service worker (public/sw.js)
+pnpm dev          # http://localhost:3000 (sin Supabase usa el proveedor seed: motor + datos demo, cero red)
+pnpm test         # 74 pruebas del motor (softbol, basquetbol y voleibol; no requieren base)
+pnpm typecheck && pnpm lint
+pnpm build        # build de producción + service worker (public/sw.js)
 ```
 
-Las pruebas del motor calculan marcador, standings (con desempates head-to-head y diferencial) y estadísticas por jugador desde los datos seed, para softbol y basquetbol — sin tocar la red.
+Con `.env.local` configurado (ver tabla), el sitio consume la base real con Realtime; sin él, la capa de datos ([lib/data/](lib/data/)) cae al proveedor seed con la misma UI.
+
+## Variables de entorno
+
+| Variable | Lado | Para qué |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | build + server | URL del API (Kong en Railway o proyecto Supabase cloud) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | build + server | Llave anónima (RLS decide qué ve) |
+| `SUPABASE_SERVICE_ROLE_KEY` | server | Webhooks MP/push/IA (salta RLS; jamás al cliente) |
+| `NEXT_PUBLIC_SITE_URL` | build + server | URL pública (back_urls de MP, links absolutos) |
+| `MP_ACCESS_TOKEN` | server | Checkout + consulta de pagos de Mercado Pago |
+| `MP_WEBHOOK_SECRET` | server | Valida `x-signature` del webhook de MP |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | build | Suscripción Web Push del navegador |
+| `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | server | Firma de envíos push |
+| `SUPABASE_WEBHOOK_SECRET` | server | Header `x-alv-webhook-secret` de los triggers pg_net |
+| `ANTHROPIC_API_KEY` | server | Crónicas IA (nunca `NEXT_PUBLIC`; endpoint no expuesto) |
+
+Los `NEXT_PUBLIC_*` se **hornean en build** (en Railway van como build args del Dockerfile).
 
 ## Despliegue: TODO en Railway (Supabase autoalojado)
 
-La infraestructura completa vive en Railway: el stack open-source de Supabase (Postgres + Auth + PostgREST + Realtime + Storage + Kong) y la app Next.js ([Dockerfile](Dockerfile) + [railway.json](railway.json)).
+La infraestructura completa vive en Railway: el stack open-source de Supabase (Postgres + Auth + PostgREST + Realtime + Storage + Kong + Studio) y la app Next.js ([Dockerfile](Dockerfile) + [railway.json](railway.json)).
 
-**1. Supabase en Railway** — en railway.com → New → Deploy Template → busca "Supabase" y despliega la plantilla. Al terminar anota: la **URL pública de Kong** (la API, será tu `NEXT_PUBLIC_SUPABASE_URL`), el **ANON_KEY**, el **SERVICE_ROLE_KEY** y la **connection string de Postgres**.
+1. **Supabase** — New → Deploy Template → "Supabase". Anota la URL pública de Kong (`NEXT_PUBLIC_SUPABASE_URL`), `ANON_KEY`, `SERVICE_ROLE_KEY` y la connection string de Postgres (TCP proxy).
+2. **Migraciones + seed** — el runner del repo aplica en orden y lleva registro en `_alv_migrations` (el TCP proxy de Railway no habla TLS, por eso no se usa `supabase db push`):
+   ```bash
+   DATABASE_URL="postgresql://supabase_admin:PASSWORD@HOST:PUERTO/postgres" pnpm tsx scripts/apply-migrations.ts --seed
+   # --seed solo siembra si la base está vacía
+   ```
+3. **La app** — New → Service → este repo (usa el Dockerfile). Configura TODAS las variables **antes del primer build** y dale **Generate Domain** (HTTPS es requisito de Web Push).
+4. **Webhooks** — son triggers pg_net versionados ([migración 16](supabase/migrations/)); apúntalos una vez:
+   ```sql
+   update public.app_config set value = 'https://TU-APP.up.railway.app' where key = 'webhook_base_url';
+   update public.app_config set value = 'TU-SUPABASE_WEBHOOK_SECRET'   where key = 'webhook_secret';
+   ```
+5. **Usuarios** — Studio → Authentication → Users; asigna rol: `insert into organization_members (organization_id, user_id, role) values ('<org>','<user>','org_admin');`
 
-**2. Migraciones + seed** — desde tu máquina, apuntando directo al Postgres de Railway (no requiere Docker ni `link`):
+> Supabase Cloud funciona como alternativa sin cambiar código: apunta las env vars al proyecto cloud y usa `supabase db push`.
 
-```bash
-pnpm dlx supabase db push --db-url "postgresql://postgres:PASSWORD@HOST:PUERTO/postgres"
-# seed: pega supabase/seed.sql en Studio → SQL Editor, o:
-psql "postgresql://postgres:PASSWORD@HOST:PUERTO/postgres" -f supabase/seed.sql
-```
+## Endurecimiento (Fase 5)
 
-**3. La app en Railway** — New → Service → este repo de GitHub (usa el Dockerfile automáticamente). Configura las variables **antes del primer deploy** (los `NEXT_PUBLIC_*` se hornean en build) — la lista completa está en [.env.example](.env.example) — y dale **Generate Domain** (HTTPS incluido, requisito de Web Push).
-
-**4. Webhooks** — ya son triggers versionados en la base ([supabase/migrations/20260716001600_webhooks.sql](supabase/migrations/20260716001600_webhooks.sql)); solo diles a dónde apuntar, una vez, en SQL:
-
-```sql
-update public.app_config set value = 'https://TU-APP.up.railway.app' where key = 'webhook_base_url';
-update public.app_config set value = 'TU-SUPABASE_WEBHOOK_SECRET'   where key = 'webhook_secret';
-```
-
-**5. Usuarios** — crea el admin y los anotadores en Studio → Authentication → Users, y da el rol con SQL: `insert into organization_members (organization_id, user_id, role) values ('<org>', '<user>', 'org_admin');`
-
-> Supabase Cloud sigue funcionando como alternativa sin cambiar una línea: solo apunta las env vars al proyecto cloud.
-
-> **Nota sobre el usuario seed:** el seed inserta un usuario ficticio en `auth.users` (`seed-admin@alvsport.mx`) porque `game_events.created_by` y `organization_members` lo requieren. Si tu proyecto rechaza ese insert, crea un usuario real en Authentication → Users y reemplaza el UUID `a0000000-0000-4000-8000-000000000001` en el seed (o regenera con `pnpm seed:generate` tras cambiar `SEED_ADMIN_USER_ID` en [lib/seed-data/ids.ts](lib/seed-data/ids.ts)).
-
-## Seeds y fixtures: una sola fuente
-
-Los datos seed viven como objetos TypeScript en [lib/seed-data/](lib/seed-data/). De ahí salen **las dos cosas**:
-
-- `supabase/seed.sql` — generado con `pnpm seed:generate` (determinista; no editar a mano).
-- Los fixtures de las pruebas de Vitest.
-
-Así, lo que prueban las pruebas es exactamente lo que se siembra.
+- **Auditoría de accesos por rol** — [scripts/security-audit.ts](scripts/security-audit.ts) crea usuarios temporales reales y ataca la API de producción: anónimo insertando en `game_events`, scorekeeper editando equipos y anotando en partidos ajenos/cerrados, team_captain leyendo pagos de otros, webhooks de push/IA sin secreto. Resultado actual: **6/6 bloqueados**. (La corrida inicial encontró una fuga real — cualquier miembro de la org podía leer inscripciones con montos — corregida en la migración `..._fix_registrations_rls.sql`.)
+- **Rate limiting** — [middleware.ts](middleware.ts): por IP, `/buscar` 20 req/min y `/api/*` 60 req/min; 429 con `Retry-After` y mensaje es-MX.
+- **Índices verificados** — `EXPLAIN ANALYZE` en producción: timeline de partido usa `(game_id, seq)`, stats por jugador usa el índice parcial `player_id`, y la derivación completa de standings corre en <1 ms con los datos actuales.
+- **Pagos** — el webhook de MP valida `x-signature` (HMAC-SHA256) y es idempotente (`status ≠ paid` como guarda); el estado del pago SIEMPRE se consulta de vuelta a la API de MP.
+- **Paginación** — donde las tablas crecen sin límite: auditoría (50/página) y noticias (10/página); `game_events` y listados públicos ya paginaban.
+- **Errores con identidad** — [app/not-found.tsx](app/not-found.tsx) y [app/error.tsx](app/error.tsx) en es-MX con la marca ALV.
 
 ## Agregar un deporte nuevo (sin tocar el motor)
 
-1. Escribe el objeto de configuración que cumpla `sportConfigSchema` (usa [lib/seed-data/basketball-config.ts](lib/seed-data/basketball-config.ts) como plantilla): tipos de evento con `scoreDelta` y `playerStats`, estructura de periodos, `pointsFor` y `tiebreakers`.
-2. Inserta la fila en `sports` (`key`, `name`, `config`).
-3. Listo: mesa de anotación, marcador, standings y stats funcionan con la nueva config. La guía completa con demostración (voleibol) llega en la Fase 5.
+La prueba ácida de la arquitectura. El voleibol se agregó así y está corriendo en producción:
+
+1. **Escribe la config** que cumpla `sportConfigSchema` — [lib/seed-data/volleyball-config.ts](lib/seed-data/volleyball-config.ts) es la plantilla real:
+   - `periods`: `{ type: "sets", count: 5 }`
+   - `eventTypes`: `attack_point`, `ace`, `block_point`, `opponent_error` (todos `scoreDelta: 1`), `dig`, `assist`, `service_error` (solo stats)
+   - `standings`: `{ winnerBy: "periods_won", pointsFor: { win: 3, tie: 0, loss: 0 }, tiebreakers: [...] }` — **la clave**: el ganador es quien gana más sets, no quien suma más puntos; CF/CC siguen siendo puntos reales.
+2. **Inserta la fila** en `sports` (`key`, `name`, `config`) y crea liga/temporada/división/equipos desde `/admin` como siempre.
+3. **No hay paso 3.** La mesa de anotación genera sus botones desde `eventTypes`, el marcador y la tabla se derivan con `winnerBy`, y el sitio público lo muestra.
+
+Demostración reproducible ([scripts/demo-volleyball.cjs](scripts/demo-volleyball.cjs)): partido a 5 sets `25-20, 20-25, 25-23, 10-25, 15-10` — Águilas gana **3-2 en sets** con **95 puntos contra 103** del rival. El caché quedó `home_score=3, away_score=2`, la tabla pública da a Águilas 1-0 con 3 puntos, y `score_for/against` conserva los puntos reales (95/103). Si agregar un deporte te obligara a tocar `lib/engine` o el SQL, eso es un bug de arquitectura — repórtalo como tal.
+
+Cobertura equivalente en pruebas: [lib/engine/\_\_tests\_\_/volleyball.test.ts](lib/engine/__tests__/volleyball.test.ts).
+
+## Seeds y fixtures: una sola fuente
+
+Los datos seed viven como objetos TypeScript en [lib/seed-data/](lib/seed-data/). De ahí salen **las dos cosas**: `supabase/seed.sql` (generado con `pnpm seed:generate`, determinista, no editar a mano) y los fixtures de Vitest. Lo que prueban las pruebas es exactamente lo que se siembra.
 
 ## Estructura
 
 ```
 app/                  # App Router (server components por defecto)
-components/ui/        # shadcn/ui
-lib/engine/           # Motor puro: marcador, standings, stats (con pruebas)
-lib/seed-data/        # Fuente única: seeds SQL + fixtures de pruebas
-lib/supabase/         # Clientes browser/server/middleware (@supabase/ssr)
-scripts/              # generate-seed.ts
-supabase/migrations/  # 12 migraciones versionadas (RLS en todas las tablas)
-supabase/seed.sql     # Generado — no editar a mano
+  (public)/           # Sitio público: /, /partido, /tabla, /equipo, /jugador, /buscar
+  admin/              # Panel: dashboard, CRUDs, calendario, pagos, sanciones, noticias, auditoría
+  anotador/           # Mesa de anotación (tablet, offline-first) + /anotador/demo
+  api/                # Webhooks (MP, pg_net) y push subscribe
+components/           # UI (shadcn), anotador, admin
+lib/engine/           # Motor puro: marcador, standings, stats, calendario (74 pruebas)
+lib/offline/          # Cola IndexedDB + sync engine idempotente
+lib/data/             # Proveedores público: supabase (Realtime) | seed (sin red)
+lib/admin|push|ai/    # Server actions, Web Push, crónicas IA
+lib/seed-data/        # Fuente única: seeds SQL + fixtures + configs de deporte
+scripts/              # apply-migrations, generate-seed, security-audit, demo-volleyball
+supabase/migrations/  # 18 migraciones versionadas (RLS en todas las tablas)
 ```
 
-## Mesa de anotación (Fase 1)
+## Recorrido por fases
 
-- **`/anotador`** — lista de partidos asignados al anotador autenticado (rol vía `game_assignments`).
-- **`/anotador/[gameId]`** — flujo completo: confirmar alineaciones (titulares + orden al bat) → `start_game()` → pantalla de anotación → finalizar con doble confirmación → `finalize_game()` (deriva el caché de marcador y refresca standings).
-- **`/anotador/demo`** — la misma mesa, 100% local con el partido seed (sin Supabase): ideal para probar el modo offline.
-- **`/partido/[gameId]`** — marcador público en vivo vía Realtime.
-
-**Offline-first:** cada evento se escribe primero en IndexedDB (`lib/offline/`) con UUID generado en cliente; el sync engine sube la cola **en orden** con upsert idempotente (`ignoreDuplicates`) — reintentar jamás duplica. Si la app se cierra a media anotación, al reabrir se recupera la cola y el punto exacto del partido. Los botones de acción se generan desde `sports.config`: cero código específico de softbol.
-
-## Sitio público (Fase 2)
-
-Mobile-first (390px primero), tema oscuro ALV, es-MX:
-
-- **`/`** — en vivo (Realtime), próximos, resultados, top de la tabla y jugadores destacados, con selector de liga.
-- **`/partido/[id]`** — header con colores oficiales, marcador por periodo y tabs Resumen / Timeline / Estadísticas / Alineaciones; EN VIVO se actualiza sin recargar.
-- **`/tabla`** — standings con los desempates del config del deporte (una sola implementación: `rankStandings` del motor).
-- **`/equipo/[slug]`** y **`/jugador/[id]`** — perfiles con racha, plantilla, stats por jornada y gráfica.
-- **`/buscar?q=`** — búsqueda global (equipos, jugadores, partidos).
-
-La capa de datos ([lib/data/](lib/data/)) tiene dos proveedores con el mismo contrato: **Supabase** (con Realtime) cuando hay proyecto configurado, y **seed** (calculado con el motor, sin red) cuando no — misma UI en ambos casos. Lighthouse mobile: home 97/100, partido 93/100 (Performance/Accesibilidad).
-
-## Panel administrativo (Fase 3)
-
-`/admin` — protegido para `org_admin`/`season_manager`, mobile-first (nav inferior en móvil, sidebar en desktop):
-
-- **Dashboard**: partidos de hoy, pendientes (pagos por confirmar, sanciones activas, partidos sin anotador) y accesos rápidos.
-- **CRUDs** con validación Zod es-MX: temporadas, divisiones, equipos (escudo/color a Storage), jugadores (foto, roster con elegibilidad), sedes/canchas, asignación de anotadores/árbitros por correo.
-- **Generador de calendario**: round-robin (motor puro, [lib/engine/schedule.ts](lib/engine/schedule.ts), con pruebas) con canchas/horarios/descanso mínimo/doble vuelta → vista previa → publicar → ajuste manual.
-- **Inscripciones y pagos**: registrar → aprobar → Mercado Pago (checkout + webhook `/api/webhooks/mercadopago`) o efectivo con nota.
-- **Sanciones**: por jugador con partidos derivados de juegos finalizados; un suspendido no puede ser titular en la mesa (bloqueado en RLS y en UI).
-- **Noticias y patrocinadores**: se reflejan en el sitio público (portada, partido, footer).
-- **Auditoría** filtrable (solo org_admin) sobre `audit_log`.
-
-Mercado Pago requiere `MP_ACCESS_TOKEN` y `SUPABASE_SERVICE_ROLE_KEY` (ver `.env.example`); sin ellos, el flujo de efectivo funciona igual.
-
-## Notificaciones y IA (Fase 4)
-
-**Web Push** — cualquier visitante con la PWA puede "Seguir" a un equipo desde su perfil (`/equipo/[slug]`): permiso → suscripción VAPID → guardada en `push_subscriptions` con preferencias por tipo (inicio / fin de periodo / resultado). El envío es 100% del servidor (`web-push`), disparado por **Database Webhooks de Supabase**; suscripciones expiradas (404/410) se eliminan solas y los envíos son idempotentes vía `push_log`.
-
-**Servicio de IA** — al finalizar un partido, un job (`ai_jobs`, reintentos máx. 3) arma el contexto estructurado desde `game_events` (marcador, línea, actuaciones, récords de temporada detectados comparando contra los máximos previos) y llama a la API de Anthropic (**claude-sonnet-4-6**, salida estructurada JSON) para generar: crónica es-MX de 2-3 párrafos, MVP con justificación estadística y jugador destacado. Se guarda como **borrador** etiquetado "IA — revisar" en Noticias — nunca se publica solo; el admin tiene botón **Regenerar**.
-
-### Configuración de la Fase 4 (en Railway)
-
-1. **VAPID:** `npx web-push generate-vapid-keys` → llena `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` en las variables del servicio.
-2. **Webhooks:** ya son triggers en la base (migración `..._webhooks.sql`) — solo configura `app_config` con la URL de tu app y el secreto (paso 4 del despliegue). El header `x-alv-webhook-secret` debe coincidir con `SUPABASE_WEBHOOK_SECRET`.
-3. **IA:** `ANTHROPIC_API_KEY` (solo en variables del servidor — nunca `NEXT_PUBLIC`; el endpoint de IA no está expuesto: solo corre desde los webhooks con secreto y desde la acción de admin con rol verificado).
+- **Fase 0 — Fundación** ✅ Modelo de datos completo con RLS, motor puro con pruebas (softbol + basquetbol), PWA instalable, tokens de marca ALV.
+- **Fase 1 — Mesa de anotación** ✅ `/anotador`: alineaciones → anotación de 2 taps (botones desde config) → deshacer como `correction` → finalizar con doble confirmación. Offline-first: IndexedDB + sync idempotente en orden; `/anotador/demo` para probar sin cuenta.
+- **Fase 2 — Sitio público** ✅ `/` (en vivo Realtime, próximos, resultados, líderes), `/partido/[id]` (tabs Resumen/Timeline/Estadísticas/Alineaciones), `/tabla` (desempates del config), perfiles de equipo/jugador, `/buscar`. Lighthouse mobile: home 97, partido 93.
+- **Fase 3 — Admin** ✅ CRUDs con Zod es-MX, generador round-robin con vista previa, inscripciones con Mercado Pago (checkout + webhook) o efectivo, sanciones que bloquean titulares (RLS + UI), noticias/patrocinadores, auditoría.
+- **Fase 4 — Push + IA** ✅ "Seguir equipo" → Web Push VAPID por preferencias; envío 100% servidor vía triggers pg_net con secreto; crónicas con claude-sonnet-4-6 (salida estructurada) que SIEMPRE quedan en borrador "IA — revisar" con botón Regenerar.
+- **Fase 5 — Endurecimiento y entrega** ✅ Auditoría de seguridad 6/6, rate limiting, firma MP, paginación, EXPLAIN, 404/error ALV, voleibol por pura configuración, este README.
 
 ### Avisos prácticos
 
-- **iPhone:** push solo funciona con la PWA instalada desde Safari ("Agregar a inicio"). El perfil de equipo ya muestra ese banner a usuarios de iOS — no es bug.
-- **HTTPS obligatorio:** push no se puede probar en `localhost` desde un celular. En Railway basta con **Generate Domain** en el servicio de la app y probar en dispositivo real (Chrome desktop + Android; iPhone con PWA instalada).
-- **Créditos:** la API key de Anthropic vive en el servidor y los webhooks exigen el secreto compartido — nadie puede disparar generaciones desde afuera.
-
-## Fases
-
-- **Fase 0:** fundación — modelo de datos, RLS, motor, seeds, PWA base. ✅
-- **Fase 1:** mesa de anotación (offline-first) + Realtime. ✅
-- **Fase 2:** sitio público estilo Sofascore. ✅
-- **Fase 3:** panel administrativo + pagos (Mercado Pago). ✅
-- **Fase 4:** Web Push + resúmenes con IA. ✅ (verificación en dispositivo real pendiente de Supabase cloud + deploy a Vercel)
-- Fase 5: endurecimiento (pruebas RLS, rate limiting, guía multi-deporte).
+- **iPhone:** push solo funciona con la PWA instalada desde Safari ("Agregar a inicio"); el perfil de equipo ya muestra ese banner en iOS.
+- **HTTPS obligatorio para push:** prueba en dispositivo real contra el dominio de Railway, no `localhost`.
+- **Créditos IA:** la API key vive solo en el servidor y los webhooks exigen secreto — nadie puede disparar generaciones desde afuera.
