@@ -10,13 +10,24 @@ export default async function PublicLayout({
     <div className="flex min-h-dvh flex-col">
       <SiteHeader />
       <div className="flex-1">{children}</div>
-      <footer className="flex flex-col gap-4 border-t px-4 py-6">
-        <div className="mx-auto w-full max-w-5xl">
+      <footer className="relative mt-12 border-t border-white/5">
+        <div className="bg-brand-gradient absolute inset-x-0 top-0 h-px opacity-40" aria-hidden />
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-10">
           <SponsorStrip sponsors={footerSponsors} />
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <p className="font-display relative pb-1.5 text-3xl leading-none">
+              ALV <span className="text-brand-silver">Sport</span>
+              <span
+                aria-hidden
+                className="bg-brand-gradient absolute bottom-0 left-0 h-[3px] w-16 -skew-x-[24deg]"
+              />
+            </p>
+            <p className="text-xs text-muted-foreground">
+              El sistema operativo de tu liga — inscripciones, calendario,
+              anotación en vivo y estadísticas.
+            </p>
+          </div>
         </div>
-        <p className="mx-auto w-full max-w-5xl text-xs text-muted-foreground">
-          ALV SPORT — el sistema operativo de tu liga.
-        </p>
       </footer>
     </div>
   );

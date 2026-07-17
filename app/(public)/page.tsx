@@ -1,9 +1,7 @@
 import Link from "next/link";
-import {
-  EmptyState,
-  SectionTitle,
-} from "@/components/public/bits";
+import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { GameCard } from "@/components/public/game-card";
+import { HeroGame } from "@/components/public/hero-game";
 import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
@@ -34,78 +32,80 @@ export default async function Home({ searchParams }: HomeProps) {
     );
   }
 
-  return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6">
-      {/* Selector de liga/temporada */}
-      <nav aria-label="Ligas" className="flex flex-wrap items-center gap-2">
-        {data.leagues.map((league) => (
-          <Link
-            key={league.slug}
-            href={league.slug === data.leagues[0]?.slug ? "/" : `/?liga=${league.slug}`}
-            aria-current={league.slug === data.league.slug ? "page" : undefined}
-            className={`rounded-full border px-4 py-2 text-sm transition-colors ${
-              league.slug === data.league.slug
-                ? "border-brand-amber/60 bg-secondary font-semibold"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {league.name}
-          </Link>
-        ))}
-        <span className="ml-auto hidden text-xs text-muted-foreground sm:inline">
-          {data.league.seasonName}
-        </span>
-      </nav>
+  // La marquesina toma el partido más relevante: en vivo → próximo → último.
+  const hero =
+    data.liveGames[0] ?? data.upcomingGames[0] ?? data.recentResults[0] ?? null;
+  const liveRest = data.liveGames.filter((game) => game.id !== hero?.id);
+  const upcomingRest = data.upcomingGames.filter((game) => game.id !== hero?.id);
+  const resultsRest = data.recentResults.filter((game) => game.id !== hero?.id);
 
-      <section aria-labelledby="en-vivo" className="flex flex-col gap-3">
-        <SectionTitle>
-          <span id="en-vivo">En vivo</span>
-        </SectionTitle>
-        {data.liveGames.length === 0 ? (
-          <EmptyState>
-            No hay partidos en vivo ahora mismo. Los marcadores aparecen aquí
-            en cuanto la mesa de anotación inicia un partido.
-          </EmptyState>
-        ) : (
+  return (
+    <main className="stagger mx-auto flex w-full max-w-5xl flex-col gap-9 px-4 py-6">
+      <LeagueChips
+        leagues={data.leagues}
+        activeSlug={data.league.slug}
+        hrefFor={(slug, index) => (index === 0 ? "/" : `/?liga=${slug}`)}
+        trailing={
+          <span className="ml-auto hidden text-xs text-muted-foreground sm:inline">
+            {data.league.seasonName}
+          </span>
+        }
+      />
+
+      {hero && (
+        <section aria-label="Partido destacado">
+          <HeroGame
+            game={hero}
+            leagueName={data.league.name}
+            seasonName={data.league.seasonName}
+          />
+        </section>
+      )}
+
+      {liveRest.length > 0 && (
+        <section aria-labelledby="en-vivo" className="flex flex-col gap-3.5">
+          <SectionTitle>
+            <span id="en-vivo">En vivo</span>
+          </SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.liveGames.map((game) => (
+            {liveRest.map((game) => (
               <GameCard key={game.id} game={game} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section aria-labelledby="proximos" className="flex flex-col gap-3">
+      <section aria-labelledby="proximos" className="flex flex-col gap-3.5">
         <SectionTitle>
           <span id="proximos">Próximos partidos</span>
         </SectionTitle>
-        {data.upcomingGames.length === 0 ? (
-          <EmptyState>No hay partidos programados por ahora.</EmptyState>
+        {upcomingRest.length === 0 ? (
+          <EmptyState>No hay más partidos programados por ahora.</EmptyState>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.upcomingGames.map((game) => (
+            {upcomingRest.map((game) => (
               <GameCard key={game.id} game={game} />
             ))}
           </div>
         )}
       </section>
 
-      <section aria-labelledby="resultados" className="flex flex-col gap-3">
+      <section aria-labelledby="resultados" className="flex flex-col gap-3.5">
         <SectionTitle>
           <span id="resultados">Resultados recientes</span>
         </SectionTitle>
-        {data.recentResults.length === 0 ? (
+        {resultsRest.length === 0 ? (
           <EmptyState>Todavía no hay resultados en esta temporada.</EmptyState>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.recentResults.map((game) => (
+            {resultsRest.map((game) => (
               <GameCard key={game.id} game={game} />
             ))}
           </div>
         )}
       </section>
 
-      <section aria-labelledby="tabla" className="flex flex-col gap-3">
+      <section aria-labelledby="tabla" className="flex flex-col gap-3.5">
         <SectionTitle>
           <span id="tabla">Tabla general</span>
         </SectionTitle>
@@ -116,7 +116,7 @@ export default async function Home({ searchParams }: HomeProps) {
             <StandingsTable rows={data.standingsTop} compact />
             <Link
               href={`/tabla?liga=${data.league.slug}`}
-              className="self-start text-sm text-brand-amber hover:underline"
+              className="self-start text-sm text-brand-amber transition-transform duration-200 hover:translate-x-0.5"
             >
               Ver tabla completa →
             </Link>
@@ -125,20 +125,31 @@ export default async function Home({ searchParams }: HomeProps) {
       </section>
 
       {news.length > 0 && (
-        <section aria-labelledby="noticias" className="flex flex-col gap-3">
+        <section aria-labelledby="noticias" className="flex flex-col gap-3.5">
           <SectionTitle>
             <span id="noticias">Noticias</span>
           </SectionTitle>
           <div className="grid gap-3 sm:grid-cols-3">
             {news.map((item) => (
-              <article key={item.id} className="flex flex-col gap-2 overflow-hidden rounded-xl border bg-card">
+              <article
+                key={item.id}
+                className="card-elevated sheen hover-lift group flex flex-col overflow-hidden rounded-xl"
+              >
                 {item.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.imageUrl} alt="" className="h-32 w-full object-cover" />
+                  <div className="overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.imageUrl}
+                      alt=""
+                      className="h-36 w-full object-cover transition-transform duration-200 motion-safe:group-hover:scale-[1.04]"
+                    />
+                  </div>
                 )}
-                <div className="flex flex-col gap-1 px-4 pt-2 pb-4">
+                <div className="flex flex-col gap-1.5 px-4 pt-3 pb-4">
                   <h3 className="font-display text-lg leading-snug">{item.title}</h3>
-                  <p className="line-clamp-3 text-sm text-muted-foreground">{item.body}</p>
+                  <p className="line-clamp-3 text-sm text-muted-foreground">
+                    {item.body}
+                  </p>
                 </div>
               </article>
             ))}
@@ -148,7 +159,7 @@ export default async function Home({ searchParams }: HomeProps) {
 
       <SponsorStrip sponsors={homeSponsors} />
 
-      <section aria-labelledby="destacados" className="flex flex-col gap-3">
+      <section aria-labelledby="destacados" className="flex flex-col gap-3.5">
         <SectionTitle>
           <span id="destacados">Jugadores destacados</span>
         </SectionTitle>
@@ -156,23 +167,36 @@ export default async function Home({ searchParams }: HomeProps) {
           <EmptyState>Los líderes aparecerán con los primeros juegos.</EmptyState>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.topPlayers.map((player) => (
+            {data.topPlayers.map((player, index) => (
               <Link
                 key={player.playerId}
                 href={`/jugador/${player.playerId}`}
-                className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-muted"
+                className="card-elevated sheen hover-lift relative flex items-center justify-between gap-3 overflow-hidden rounded-xl px-4 py-3.5"
               >
-                <span className="flex min-w-0 flex-col">
+                <span
+                  aria-hidden
+                  className="font-display pointer-events-none absolute -top-1 right-1 text-6xl text-white/[0.05] tabular-nums"
+                >
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <span className="relative flex min-w-0 flex-col">
                   <span className="truncate text-sm font-medium">{player.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {player.team.name}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="size-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: player.team.color ?? "#666" }}
+                      aria-hidden
+                    />
+                    <span className="truncate text-xs text-muted-foreground">
+                      {player.team.name}
+                    </span>
                   </span>
                 </span>
-                <span className="flex flex-col items-end">
-                  <span className="font-display text-2xl text-brand-amber tabular-nums">
+                <span className="relative flex flex-col items-end">
+                  <span className="font-display text-3xl leading-none text-brand-amber tabular-nums">
                     {player.value}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
                     {player.statLabel}
                   </span>
                 </span>

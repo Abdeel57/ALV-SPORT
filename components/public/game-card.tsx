@@ -18,28 +18,34 @@ function TeamLine({
   color,
   score,
   winner,
+  decided,
 }: {
   name: string;
   color: string | null;
   score: number | null;
   winner: boolean;
+  decided: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="flex min-w-0 items-center gap-2">
+      <span className="flex min-w-0 items-center gap-2.5">
         <span
-          className="size-2.5 shrink-0 rounded-full"
+          className="h-4 w-1 shrink-0 rounded-full"
           style={{ backgroundColor: color ?? "#666" }}
           aria-hidden
         />
-        <span className={`truncate text-sm ${winner ? "font-semibold" : ""}`}>
+        <span
+          className={`truncate text-sm ${
+            winner ? "font-semibold" : decided ? "text-muted-foreground" : ""
+          }`}
+        >
           {name}
         </span>
       </span>
       {score !== null && (
         <span
-          className={`font-display text-xl tabular-nums ${
-            winner ? "" : "text-muted-foreground"
+          className={`font-display text-2xl leading-none tabular-nums ${
+            winner ? "text-brand-amber" : decided ? "text-muted-foreground" : ""
           }`}
         >
           {score}
@@ -54,44 +60,54 @@ export function GameCard({ game }: { game: GameSummary }) {
   const isFinal = game.status === "finalized";
   const homeWins = isFinal && (game.homeScore ?? 0) > (game.awayScore ?? 0);
   const awayWins = isFinal && (game.awayScore ?? 0) > (game.homeScore ?? 0);
+  const decided = homeWins || awayWins;
   const date = new Date(game.scheduledAt);
 
   return (
     <Link
       href={`/partido/${game.id}`}
-      className="group relative flex flex-col gap-2 overflow-hidden rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-muted"
+      className={`card-elevated sheen hover-lift group relative flex flex-col gap-2.5 rounded-xl px-4 py-3.5 ${
+        isLive ? "border-brand-red/35" : ""
+      }`}
     >
       {isLive && (
-        <span className="bg-brand-gradient absolute inset-x-0 top-0 h-0.5" aria-hidden />
+        <span className="live-bar absolute inset-x-0 top-0 h-0.5" aria-hidden />
       )}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         {isLive ? (
-          <span className="flex items-center gap-1.5 font-semibold text-primary">
-            <span
-              className="size-2 rounded-full bg-primary motion-safe:animate-pulse"
-              aria-hidden
-            />
-            EN VIVO
+          <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">
+            <span className="live-dot size-2" aria-hidden />
+            En vivo
           </span>
         ) : isFinal ? (
-          <span>Final</span>
+          <span className="border-brand-silver/25 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.14em] uppercase">
+            Final
+          </span>
         ) : (
-          <span>
+          <span className="tracking-wide tabular-nums">
             {dateFormat.format(date)} · {timeFormat.format(date)}
           </span>
         )}
+        <span
+          aria-hidden
+          className="text-brand-silver/0 transition-colors duration-200 group-hover:text-brand-silver/80"
+        >
+          →
+        </span>
       </div>
       <TeamLine
         name={game.away.name}
         color={game.away.color}
         score={game.awayScore}
         winner={awayWins}
+        decided={decided}
       />
       <TeamLine
         name={game.home.name}
         color={game.home.color}
         score={game.homeScore}
         winner={homeWins}
+        decided={decided}
       />
     </Link>
   );

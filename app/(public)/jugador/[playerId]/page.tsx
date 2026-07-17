@@ -117,19 +117,25 @@ export default async function JugadorPage({ params }: PageProps) {
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
+    <main className="stagger mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
       <section
-        className="flex flex-wrap items-center gap-4 rounded-2xl border px-4 py-5 sm:px-6"
+        className="card-elevated relative flex flex-wrap items-center gap-4 overflow-hidden rounded-2xl px-4 py-5 sm:px-6"
         style={{
-          backgroundImage: `linear-gradient(120deg, ${profile.team.color ?? "#666"}26 0%, transparent 55%)`,
+          backgroundImage: `linear-gradient(120deg, ${profile.team.color ?? "#666"}2e 0%, transparent 55%)`,
         }}
       >
         <span
           aria-hidden
-          className="flex size-16 items-center justify-center rounded-full border font-display text-2xl tabular-nums"
+          className="absolute -top-16 -left-16 size-48 rounded-full blur-3xl"
+          style={{ backgroundColor: `${profile.team.color ?? "#666"}1f` }}
+        />
+        <span
+          aria-hidden
+          className="relative flex size-16 items-center justify-center rounded-full border font-display text-2xl tabular-nums"
           style={{
             backgroundColor: `${profile.team.color ?? "#666"}26`,
             borderColor: `${profile.team.color ?? "#666"}66`,
+            boxShadow: `0 0 26px ${profile.team.color ?? "#666"}33`,
           }}
         >
           {profile.jerseyNumber ?? profile.name.slice(0, 1)}
@@ -154,7 +160,7 @@ export default async function JugadorPage({ params }: PageProps) {
             {profile.statDefs.map((def) => (
               <div
                 key={def.key}
-                className="flex flex-col items-center gap-1 rounded-xl border bg-card px-2 py-3"
+                className="card-elevated flex flex-col items-center gap-1 rounded-xl px-2 py-3"
               >
                 <span className="font-display text-2xl tabular-nums">
                   {profile.seasonTotals[def.key] ?? 0}
@@ -171,7 +177,7 @@ export default async function JugadorPage({ params }: PageProps) {
       {headline && profile.perGame.length > 0 && (
         <section className="flex flex-col gap-3">
           <SectionTitle>{headline.label} por jornada</SectionTitle>
-          <div className="rounded-xl border p-3">
+          <div className="card-elevated rounded-xl p-3">
             <PerformanceChart
               values={chartValues}
               labels={chartLabels}
@@ -185,7 +191,7 @@ export default async function JugadorPage({ params }: PageProps) {
       {profile.perGame.length > 0 && (
         <section className="flex flex-col gap-3">
           <SectionTitle>Juego por juego</SectionTitle>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="card-elevated overflow-x-auto rounded-xl">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">

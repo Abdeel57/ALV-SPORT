@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { EmptyState, SectionTitle } from "@/components/public/bits";
+import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
 
@@ -25,24 +24,13 @@ export default async function TablaPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <main className="stagger mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
       <SectionTitle>Tabla general</SectionTitle>
-      <nav aria-label="Ligas" className="flex flex-wrap gap-2">
-        {leagues.map((league) => (
-          <Link
-            key={league.slug}
-            href={`/tabla?liga=${league.slug}`}
-            aria-current={league.slug === standings?.league.slug ? "page" : undefined}
-            className={`rounded-full border px-4 py-2 text-sm transition-colors ${
-              league.slug === standings?.league.slug
-                ? "border-brand-amber/60 bg-secondary font-semibold"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {league.name}
-          </Link>
-        ))}
-      </nav>
+      <LeagueChips
+        leagues={leagues}
+        activeSlug={standings?.league.slug}
+        hrefFor={(slug) => `/tabla?liga=${slug}`}
+      />
       {!standings || standings.rows.length === 0 ? (
         <EmptyState>
           La tabla aparecerá cuando haya juegos finalizados en esta temporada.

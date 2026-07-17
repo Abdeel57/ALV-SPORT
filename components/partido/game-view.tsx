@@ -72,24 +72,28 @@ function TeamBlock({
   color: string | null;
   align: "left" | "right";
 }) {
+  const tint = color ?? "#666";
   return (
     <Link
       href={`/equipo/${slug}`}
-      className={`flex min-w-0 flex-1 items-center gap-3 ${
+      className={`group flex min-w-0 flex-1 items-center gap-3 ${
         align === "right" ? "flex-row-reverse text-right" : ""
       }`}
     >
       <span
         aria-hidden
-        className="flex size-12 shrink-0 items-center justify-center rounded-full border font-display text-xl"
+        className="flex size-12 shrink-0 items-center justify-center rounded-full border font-display text-xl transition-transform duration-200 motion-safe:group-hover:scale-105 sm:size-14 sm:text-2xl"
         style={{
-          backgroundColor: `${color ?? "#666"}26`,
-          borderColor: `${color ?? "#666"}66`,
+          backgroundColor: `${tint}26`,
+          borderColor: `${tint}66`,
+          boxShadow: `0 0 26px ${tint}33`,
         }}
       >
         {name.slice(0, 1)}
       </span>
-      <span className="truncate font-display text-lg sm:text-2xl">{name}</span>
+      <span className="truncate font-display text-lg leading-tight sm:text-2xl">
+        {name}
+      </span>
     </Link>
   );
 }
@@ -207,25 +211,42 @@ export function GameView({
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
-      {/* Header del partido: colores oficiales tiñendo cada lado */}
+      {/* Header del partido: marcador broadcast teñido por los colores oficiales */}
       <section
         aria-label="Marcador"
-        className="relative overflow-hidden rounded-2xl border"
-        style={{
-          backgroundImage: `linear-gradient(105deg, ${game.away.color ?? "#666"}22 0%, transparent 38%, transparent 62%, ${game.home.color ?? "#666"}22 100%)`,
-        }}
+        className={`card-elevated relative overflow-hidden rounded-2xl ${
+          isLive ? "border-brand-red/35" : ""
+        }`}
       >
-        {isLive && <div className="bg-brand-gradient h-1 w-full" aria-hidden />}
-        <div className="flex flex-col gap-4 px-4 py-5 sm:px-6">
+        {isLive ? (
+          <div className="live-bar h-1 w-full" aria-hidden />
+        ) : (
+          <div className="bg-brand-gradient h-1 w-full opacity-35" aria-hidden />
+        )}
+        <span
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `linear-gradient(105deg, ${game.away.color ?? "#666"}2e 0%, transparent 42%, transparent 58%, ${game.home.color ?? "#666"}2e 100%)`,
+          }}
+        />
+        <span
+          aria-hidden
+          className="absolute -top-20 -left-20 size-60 rounded-full blur-3xl"
+          style={{ backgroundColor: `${game.away.color ?? "#666"}1f` }}
+        />
+        <span
+          aria-hidden
+          className="absolute -right-20 -bottom-20 size-60 rounded-full blur-3xl"
+          style={{ backgroundColor: `${game.home.color ?? "#666"}1f` }}
+        />
+        <div className="relative flex flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6">
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{league.name}</span>
+            <span className="truncate">{league.name}</span>
             {isLive ? (
-              <span className="flex items-center gap-1.5 font-semibold text-primary">
-                <span
-                  className="size-2 rounded-full bg-primary motion-safe:animate-pulse"
-                  aria-hidden
-                />
-                EN VIVO
+              <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">
+                <span className="live-dot size-2" aria-hidden />
+                En vivo
               </span>
             ) : (
               <Badge variant="outline">{isFinal ? "Final" : "Programado"}</Badge>
@@ -240,11 +261,15 @@ export function GameView({
             />
             <div
               aria-label={`Marcador: ${game.away.name} ${awayScore ?? "—"}, ${game.home.name} ${homeScore ?? "—"}`}
-              className="flex items-baseline gap-3 font-display text-5xl tabular-nums sm:text-6xl"
+              className="flex items-baseline gap-3 font-display text-5xl tabular-nums sm:text-7xl"
             >
-              <span>{awayScore ?? "—"}</span>
-              <span className="text-2xl text-muted-foreground">–</span>
-              <span>{homeScore ?? "—"}</span>
+              <span key={`a-${awayScore}`} className="score-pop inline-block">
+                {awayScore ?? "—"}
+              </span>
+              <span className="text-2xl text-muted-foreground sm:text-3xl">–</span>
+              <span key={`h-${homeScore}`} className="score-pop inline-block">
+                {homeScore ?? "—"}
+              </span>
             </div>
             <TeamBlock
               name={game.home.name}
@@ -253,18 +278,31 @@ export function GameView({
               align="right"
             />
           </div>
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-xs text-muted-foreground tabular-nums">
             {dateFormat.format(new Date(game.scheduledAt))}
           </p>
         </div>
       </section>
 
       <Tabs defaultValue="resumen">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
-          <TabsTrigger value="estadisticas">Estadísticas</TabsTrigger>
-          <TabsTrigger value="alineaciones">Alineaciones</TabsTrigger>
+        <TabsList
+          variant="line"
+          className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-white/5 p-0"
+        >
+          {[
+            ["resumen", "Resumen"],
+            ["timeline", "Timeline"],
+            ["estadisticas", "Estadísticas"],
+            ["alineaciones", "Alineaciones"],
+          ].map(([value, label]) => (
+            <TabsTrigger
+              key={value}
+              value={value}
+              className="h-auto flex-none px-4 py-2.5 text-[13px] font-semibold tracking-[0.08em] uppercase after:bottom-[-1px] after:h-0.5 after:bg-brand-gradient data-active:text-foreground"
+            >
+              {label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="resumen" className="flex flex-col gap-4 pt-4">
@@ -274,10 +312,10 @@ export function GameView({
               {sportConfig.periodStructure.label.toLowerCase()} aparecerá aquí.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border">
+            <div className="card-elevated overflow-x-auto rounded-xl">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="border-white/5 hover:bg-transparent">
                     <TableHead>Equipo</TableHead>
                     {Array.from({ length: periodCount }, (_, i) => (
                       <TableHead key={i} className="text-center">
@@ -336,7 +374,9 @@ export function GameView({
                   >
                     <span
                       aria-hidden
-                      className="flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold"
+                      className={`flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
+                        scoring ? "bg-brand-amber/10" : ""
+                      }`}
                       style={{
                         borderColor: `${team?.color ?? "#666"}88`,
                         color: team?.color ?? undefined,
@@ -370,7 +410,7 @@ export function GameView({
               Las estadísticas comparativas aparecerán con las primeras jugadas.
             </p>
           ) : (
-            <div className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="card-elevated flex flex-col gap-3 rounded-xl p-4">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{game.away.name}</span>
                 <span>{game.home.name}</span>

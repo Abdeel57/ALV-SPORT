@@ -51,20 +51,26 @@ export default async function EquipoPage({ params }: PageProps) {
   const results = games.filter((game) => game.status !== "scheduled").reverse();
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
+    <main className="stagger mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
       {/* Header del equipo: su color oficial como acento */}
       <section
-        className="flex flex-wrap items-center gap-4 overflow-hidden rounded-2xl border px-4 py-5 sm:px-6"
+        className="card-elevated relative flex flex-wrap items-center gap-4 overflow-hidden rounded-2xl px-4 py-5 sm:px-6"
         style={{
-          backgroundImage: `linear-gradient(120deg, ${team.color ?? "#666"}26 0%, transparent 55%)`,
+          backgroundImage: `linear-gradient(120deg, ${team.color ?? "#666"}2e 0%, transparent 55%)`,
         }}
       >
         <span
           aria-hidden
-          className="flex size-16 items-center justify-center rounded-full border font-display text-3xl"
+          className="absolute -top-16 -left-16 size-48 rounded-full blur-3xl"
+          style={{ backgroundColor: `${team.color ?? "#666"}1f` }}
+        />
+        <span
+          aria-hidden
+          className="relative flex size-16 items-center justify-center rounded-full border font-display text-3xl"
           style={{
             backgroundColor: `${team.color ?? "#666"}26`,
             borderColor: `${team.color ?? "#666"}66`,
+            boxShadow: `0 0 26px ${team.color ?? "#666"}33`,
           }}
         >
           {team.name.slice(0, 1)}
