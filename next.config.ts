@@ -12,6 +12,8 @@ const withSerwist = withSerwistInit({
 const nextConfig: NextConfig = {
   // Hay lockfiles ajenos arriba en el árbol (C:\Users\Admin): fijar la raíz.
   outputFileTracingRoot: process.cwd(),
+  // Railway: imagen mínima con server.js autocontenido (ver Dockerfile).
+  output: "standalone",
 };
 
 export default withSerwist(nextConfig);

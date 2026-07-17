@@ -24,17 +24,32 @@ pnpm build        # genera también el service worker (public/sw.js)
 
 Las pruebas del motor calculan marcador, standings (con desempates head-to-head y diferencial) y estadísticas por jugador desde los datos seed, para softbol y basquetbol — sin tocar la red.
 
-## Conectar a Supabase Cloud
+## Despliegue: TODO en Railway (Supabase autoalojado)
 
-No se requiere Docker. Con un proyecto creado en [supabase.com](https://supabase.com):
+La infraestructura completa vive en Railway: el stack open-source de Supabase (Postgres + Auth + PostgREST + Realtime + Storage + Kong) y la app Next.js ([Dockerfile](Dockerfile) + [railway.json](railway.json)).
+
+**1. Supabase en Railway** — en railway.com → New → Deploy Template → busca "Supabase" y despliega la plantilla. Al terminar anota: la **URL pública de Kong** (la API, será tu `NEXT_PUBLIC_SUPABASE_URL`), el **ANON_KEY**, el **SERVICE_ROLE_KEY** y la **connection string de Postgres**.
+
+**2. Migraciones + seed** — desde tu máquina, apuntando directo al Postgres de Railway (no requiere Docker ni `link`):
 
 ```bash
-pnpm dlx supabase login
-pnpm dlx supabase link --project-ref TU-PROJECT-REF
-pnpm dlx supabase db push        # aplica las 12 migraciones
+pnpm dlx supabase db push --db-url "postgresql://postgres:PASSWORD@HOST:PUERTO/postgres"
+# seed: pega supabase/seed.sql en Studio → SQL Editor, o:
+psql "postgresql://postgres:PASSWORD@HOST:PUERTO/postgres" -f supabase/seed.sql
 ```
 
-Para sembrar datos de demostración, pega el contenido de [supabase/seed.sql](supabase/seed.sql) en el SQL Editor del dashboard (o `pnpm dlx supabase db push --include-seed` si tu CLI lo soporta). Después copia `.env.example` a `.env.local` y llena la URL y la anon key del proyecto.
+**3. La app en Railway** — New → Service → este repo de GitHub (usa el Dockerfile automáticamente). Configura las variables **antes del primer deploy** (los `NEXT_PUBLIC_*` se hornean en build) — la lista completa está en [.env.example](.env.example) — y dale **Generate Domain** (HTTPS incluido, requisito de Web Push).
+
+**4. Webhooks** — ya son triggers versionados en la base ([supabase/migrations/20260716001600_webhooks.sql](supabase/migrations/20260716001600_webhooks.sql)); solo diles a dónde apuntar, una vez, en SQL:
+
+```sql
+update public.app_config set value = 'https://TU-APP.up.railway.app' where key = 'webhook_base_url';
+update public.app_config set value = 'TU-SUPABASE_WEBHOOK_SECRET'   where key = 'webhook_secret';
+```
+
+**5. Usuarios** — crea el admin y los anotadores en Studio → Authentication → Users, y da el rol con SQL: `insert into organization_members (organization_id, user_id, role) values ('<org>', '<user>', 'org_admin');`
+
+> Supabase Cloud sigue funcionando como alternativa sin cambiar una línea: solo apunta las env vars al proyecto cloud.
 
 > **Nota sobre el usuario seed:** el seed inserta un usuario ficticio en `auth.users` (`seed-admin@alvsport.mx`) porque `game_events.created_by` y `organization_members` lo requieren. Si tu proyecto rechaza ese insert, crea un usuario real en Authentication → Users y reemplaza el UUID `a0000000-0000-4000-8000-000000000001` en el seed (o regenera con `pnpm seed:generate` tras cambiar `SEED_ADMIN_USER_ID` en [lib/seed-data/ids.ts](lib/seed-data/ids.ts)).
 
@@ -107,18 +122,16 @@ Mercado Pago requiere `MP_ACCESS_TOKEN` y `SUPABASE_SERVICE_ROLE_KEY` (ver `.env
 
 **Servicio de IA** — al finalizar un partido, un job (`ai_jobs`, reintentos máx. 3) arma el contexto estructurado desde `game_events` (marcador, línea, actuaciones, récords de temporada detectados comparando contra los máximos previos) y llama a la API de Anthropic (**claude-sonnet-4-6**, salida estructurada JSON) para generar: crónica es-MX de 2-3 párrafos, MVP con justificación estadística y jugador destacado. Se guarda como **borrador** etiquetado "IA — revisar" en Noticias — nunca se publica solo; el admin tiene botón **Regenerar**.
 
-### Configuración de la Fase 4 (tras conectar Supabase)
+### Configuración de la Fase 4 (en Railway)
 
-1. **VAPID:** `npx web-push generate-vapid-keys` → llena `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
-2. **Webhooks** (Dashboard → Database → Webhooks), ambos con header `x-alv-webhook-secret` = `SUPABASE_WEBHOOK_SECRET`:
-   - `games` · UPDATE → `https://TU-DOMINIO/api/hooks/game-status`
-   - `game_events` · INSERT → `https://TU-DOMINIO/api/hooks/game-events`
+1. **VAPID:** `npx web-push generate-vapid-keys` → llena `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` en las variables del servicio.
+2. **Webhooks:** ya son triggers en la base (migración `..._webhooks.sql`) — solo configura `app_config` con la URL de tu app y el secreto (paso 4 del despliegue). El header `x-alv-webhook-secret` debe coincidir con `SUPABASE_WEBHOOK_SECRET`.
 3. **IA:** `ANTHROPIC_API_KEY` (solo en variables del servidor — nunca `NEXT_PUBLIC`; el endpoint de IA no está expuesto: solo corre desde los webhooks con secreto y desde la acción de admin con rol verificado).
 
 ### Avisos prácticos
 
 - **iPhone:** push solo funciona con la PWA instalada desde Safari ("Agregar a inicio"). El perfil de equipo ya muestra ese banner a usuarios de iOS — no es bug.
-- **HTTPS obligatorio:** push no se puede probar en `localhost` desde un celular. Haz deploy a Vercel (un preview basta), configura las env vars ahí y prueba en dispositivo real (Chrome desktop + Android; iPhone con PWA instalada).
+- **HTTPS obligatorio:** push no se puede probar en `localhost` desde un celular. En Railway basta con **Generate Domain** en el servicio de la app y probar en dispositivo real (Chrome desktop + Android; iPhone con PWA instalada).
 - **Créditos:** la API key de Anthropic vive en el servidor y los webhooks exigen el secreto compartido — nadie puede disparar generaciones desde afuera.
 
 ## Fases
