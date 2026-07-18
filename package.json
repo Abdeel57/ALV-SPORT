@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:generate": "tsx scripts/generate-seed.ts",
+    "brand:assets": "tsx scripts/generate-brand-assets.ts",
     "db:push": "supabase db push",
     "db:migrate": "tsx scripts/apply-migrations.ts",
     "db:backup": "tsx scripts/backup-db.ts",

@@ -1,20 +1,17 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
-/** Header público: wordmark con swoosh, navegación y búsqueda (form GET, 0 JS). */
+/** Header público: logo oficial, navegación y búsqueda (form GET, 0 JS). */
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-20 border-b border-white/5 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
         <Link
           href="/"
-          className="font-display relative pb-1 text-2xl leading-none"
+          className="shrink-0 leading-none"
           aria-label="ALV SPORT — Inicio"
         >
-          ALV <span className="text-brand-silver">Sport</span>
-          <span
-            aria-hidden
-            className="bg-brand-gradient absolute bottom-0 left-0 h-[3px] w-14 -skew-x-[24deg]"
-          />
+          <BrandLogo priority className="h-7 sm:h-8" />
         </Link>
         <nav
           aria-label="Principal"

@@ -41,8 +41,17 @@ servicio de Postgres → **Settings → Backups** → activa respaldos automáti
 (retención diaria). Es la red de seguridad definitiva y no depende de que
 alguien corra un script.
 
-**Cadencia sugerida:** managed diario en Railway + un `pnpm db:backup` manual
-antes de aplicar cualquier migración de riesgo.
+**Opción C — respaldo nocturno automático (ya configurado en el repo):** el
+workflow [.github/workflows/backup.yml](.github/workflows/backup.yml) respalda
+la base cada madrugada y guarda el `.dump` como artefacto (30 días). Para
+**activarlo** (acción única tuya en GitHub → Settings):
+
+- Variable: `NIGHTLY_OPS = true`
+- Secreto: `DATABASE_URL` (la connection string de Postgres)
+
+**Cadencia sugerida:** el nocturno automático + un `pnpm db:backup` manual
+antes de aplicar cualquier migración de riesgo. (El managed de Railway sigue
+siendo buena red adicional si activas su plan.)
 
 ## Migraciones
 
@@ -86,6 +95,12 @@ SUPABASE_URL=https://KONG… ANON_KEY=… SERVICE_ROLE_KEY=… APP_URL=https://A
 **Cadencia:** córrela después de cada migración que toque RLS o políticas.
 Debe dar **6/6 bloqueados**; si algo pasa, es un hueco que hay que cerrar antes
 de desplegar.
+
+**Nocturna automática (ya en el repo):**
+[.github/workflows/security-audit.yml](.github/workflows/security-audit.yml)
+la corre cada madrugada y **falla si algún acceso indebido pasa**. Actívala con
+la variable `NIGHTLY_OPS = true` y los secretos `AUDIT_SUPABASE_URL`,
+`AUDIT_ANON_KEY`, `AUDIT_SERVICE_ROLE_KEY`, `AUDIT_APP_URL`.
 
 ## Deploy
 

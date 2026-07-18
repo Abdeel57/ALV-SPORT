@@ -77,6 +77,50 @@ export const signupSchema = z
 
 export type SignupInput = z.infer<typeof signupSchema>;
 
+/** Unión a un equipo vía link de invitación (el código va en la URL). */
+export const teamJoinSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(4, "Código inválido")
+    .max(12, "Código inválido"),
+  fullName: z
+    .string({ error: "Tu nombre es obligatorio" })
+    .trim()
+    .min(2, "Tu nombre es obligatorio")
+    .max(120, "El nombre es demasiado largo"),
+  email: z.email({ error: "El correo no es válido" }).max(160),
+  phone: z
+    .string()
+    .trim()
+    .max(30)
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional(),
+  position: z
+    .string()
+    .trim()
+    .max(40)
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional(),
+  jerseyNumber: z
+    .string()
+    .trim()
+    .max(4)
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional(),
+  message: z
+    .string()
+    .trim()
+    .max(600)
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional(),
+  website: z.string().max(0, "spam").optional().or(z.literal("")),
+});
+
 /** Aprobación de coach: crea el equipo en la división elegida. */
 export const approveCoachSchema = z.object({
   requestId: z.uuid(),

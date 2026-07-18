@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 export default function NotFound() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
+      <BrandLogo className="mb-2 h-7 opacity-90" />
       <p className="font-display text-8xl uppercase italic leading-none tracking-tight text-brand-silver/30 tabular-nums">
         404
       </p>

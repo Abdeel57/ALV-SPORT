@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -48,7 +49,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-7 px-4">
+      <BrandLogo priority className="h-9" />
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="font-display text-3xl">Iniciar sesión</CardTitle>

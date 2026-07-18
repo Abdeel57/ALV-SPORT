@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
+import { CopyLink } from "@/components/admin/copy-link";
 import {
   AdminTitle,
   EmptyRow,
@@ -73,11 +74,18 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
   const [{ data: reqData }, { data: divData }, { data: teamData }] = await Promise.all([
     query,
     context.supabase.from("divisions").select("id, name, season_id"),
-    context.supabase.from("teams").select("id, name, division_id"),
+    context.supabase.from("teams").select("id, name, division_id, join_code"),
   ]);
   const requests = (reqData ?? []) as unknown as SignupRow[];
   const divisions = (divData ?? []) as { id: string; name: string; season_id: string }[];
-  const teams = (teamData ?? []) as { id: string; name: string; division_id: string }[];
+  const teams = (teamData ?? []) as {
+    id: string;
+    name: string;
+    division_id: string;
+    join_code: string | null;
+  }[];
+  const teamCode = new Map(teams.map((t) => [t.id, t.join_code]));
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
   const divisionSeason = new Map(divisions.map((d) => [d.id, d.season_id]));
   const divisionsBySeason = new Map<string, { id: string; name: string }[]>();
@@ -204,9 +212,22 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                 )}
 
                 {request.status === "approved" && (
-                  <p className="text-xs text-brand-silver">
-                    ✓ {request.resolved_team_id ? "Equipo creado" : request.resolved_player_id ? "Jugador agregado al roster" : "Aprobada"}
-                  </p>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-brand-silver">
+                      ✓ {request.resolved_team_id ? "Equipo creado" : request.resolved_player_id ? "Jugador agregado al roster" : "Aprobada"}
+                    </p>
+                    {request.resolved_team_id && teamCode.get(request.resolved_team_id) && (
+                      <div className="rounded-lg border border-brand-amber/25 bg-brand-amber/[0.03] p-3">
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          📲 Comparte este link con el coach para que sus
+                          jugadores se auto-agreguen al roster:
+                        </p>
+                        <CopyLink
+                          url={`${siteUrl}/unirse/${teamCode.get(request.resolved_team_id)}`}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {open && request.kind === "coach" && (

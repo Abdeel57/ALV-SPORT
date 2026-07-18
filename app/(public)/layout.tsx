@@ -1,3 +1,4 @@
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { SiteHeader } from "@/components/public/site-header";
 import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { getSponsors } from "@/lib/data/extras";
@@ -15,13 +16,7 @@ export default async function PublicLayout({
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-10">
           <SponsorStrip sponsors={footerSponsors} />
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <p className="font-display relative pb-1.5 text-3xl leading-none">
-              ALV <span className="text-brand-silver">Sport</span>
-              <span
-                aria-hidden
-                className="bg-brand-gradient absolute bottom-0 left-0 h-[3px] w-16 -skew-x-[24deg]"
-              />
-            </p>
+            <BrandLogo className="h-10" />
             <p className="text-xs text-muted-foreground">
               El sistema operativo de tu liga — inscripciones, calendario,
               anotación en vivo y estadísticas.

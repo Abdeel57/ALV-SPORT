@@ -209,6 +209,33 @@ export function GameView({
 
   const timeline = [...effective].reverse();
 
+  function shareText(): string {
+    const away = `${game.away.name} ${awayScore ?? ""}`.trim();
+    const home = `${homeScore ?? ""} ${game.home.name}`.trim();
+    const state = isLive ? "🔴 EN VIVO" : isFinal ? "🏆 Final" : "📅 Próximo";
+    return `${state}  ${away} – ${home}  ·  ${league.name}`;
+  }
+
+  async function share() {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const text = shareText();
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "ALV SPORT", text, url });
+        return;
+      } catch {
+        // Cancelado o no disponible: cae al link de WhatsApp.
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    }
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
       {/* Header del partido: marcador broadcast teñido por los colores oficiales */}
@@ -243,14 +270,30 @@ export function GameView({
         <div className="relative flex flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6">
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span className="truncate">{league.name}</span>
-            {isLive ? (
-              <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">
-                <span className="live-dot size-2" aria-hidden />
-                En vivo
-              </span>
-            ) : (
-              <Badge variant="outline">{isFinal ? "Final" : "Programado"}</Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {isLive ? (
+                <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">
+                  <span className="live-dot size-2" aria-hidden />
+                  En vivo
+                </span>
+              ) : (
+                <Badge variant="outline">{isFinal ? "Final" : "Programado"}</Badge>
+              )}
+              <button
+                type="button"
+                onClick={share}
+                aria-label="Compartir el partido"
+                className="flex min-h-8 items-center gap-1.5 rounded-lg border border-brand-silver/25 px-2.5 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
+                </svg>
+                Compartir
+              </button>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-3">
             <TeamBlock

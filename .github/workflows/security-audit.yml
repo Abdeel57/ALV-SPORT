@@ -1,0 +1,33 @@
+name: Auditoría de seguridad nocturna
+
+# Corre la auditoría de RLS por rol contra producción y falla si algún
+# acceso indebido pasa. Se activa con la variable NIGHTLY_OPS=true y los
+# secretos AUDIT_* del repositorio (ver OPERACIONES.md).
+on:
+  schedule:
+    - cron: "30 9 * * *" # 09:30 UTC ≈ 03:30 CDMX
+  workflow_dispatch: {}
+
+jobs:
+  audit:
+    if: ${{ vars.NIGHTLY_OPS == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Auditoría de accesos por rol (debe dar 6/6 bloqueados)
+        env:
+          SUPABASE_URL: ${{ secrets.AUDIT_SUPABASE_URL }}
+          ANON_KEY: ${{ secrets.AUDIT_ANON_KEY }}
+          SERVICE_ROLE_KEY: ${{ secrets.AUDIT_SERVICE_ROLE_KEY }}
+          APP_URL: ${{ secrets.AUDIT_APP_URL }}
+        run: pnpm security:audit

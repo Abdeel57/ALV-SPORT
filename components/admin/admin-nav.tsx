@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 /**
  * Navegación del panel: barra inferior fija en móvil (4 destinos, targets
@@ -72,10 +73,15 @@ export function AdminSidebar() {
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r lg:flex">
       <div className="px-5 py-5">
-        <Link href="/admin" className="font-display text-2xl">
-          ALV <span className="text-brand-silver">Admin</span>
+        <Link href="/admin" className="block" aria-label="ALV SPORT — Panel">
+          <BrandLogo className="h-7" />
         </Link>
-        <div className="bg-brand-gradient mt-2 h-0.5 w-16 rounded-full" aria-hidden />
+        <div className="mt-2.5 flex items-center gap-2">
+          <span className="bg-brand-gradient h-0.5 w-8 rounded-full" aria-hidden />
+          <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Panel
+          </span>
+        </div>
       </div>
       <nav aria-label="Secciones" className="flex flex-1 flex-col gap-0.5 px-3">
         {all.map((item) => {

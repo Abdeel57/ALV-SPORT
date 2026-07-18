@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 export default function ErrorPage({
   error,
@@ -31,6 +32,7 @@ export default function ErrorPage({
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
+      <BrandLogo className="mb-2 h-7 opacity-90" />
       <p className="font-display text-6xl uppercase italic leading-none tracking-tight text-destructive/60">
         Falta técnica
       </p>
