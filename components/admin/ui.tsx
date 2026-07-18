@@ -2,15 +2,32 @@ import { Badge } from "@/components/ui/badge";
 
 /** Piezas compartidas del panel: consistentes, táctiles y es-MX. */
 
-export function AdminTitle({ children }: { children: React.ReactNode }) {
+/**
+ * Encabezado de página del panel: acento vertical de marca + título, con
+ * subtítulo y acción opcionales alineados a la derecha. Cierra con una
+ * hairline sutil para separarlo del contenido.
+ */
+export function AdminTitle({
+  children,
+  subtitle,
+  action,
+}: {
+  children: React.ReactNode;
+  subtitle?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-3">
-      <h1 className="font-display text-3xl">{children}</h1>
-      <div
-        className="bg-brand-gradient h-0.5 min-w-6 flex-1 rounded-full opacity-40"
-        style={{ clipPath: "polygon(0 0, 100% 0, calc(100% - 6px) 100%, 6px 100%)" }}
-        aria-hidden
-      />
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-border/60 pb-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="h-9 w-1 shrink-0 rounded-full bg-brand-gradient" aria-hidden />
+        <div className="min-w-0">
+          <h1 className="font-display text-3xl leading-none">{children}</h1>
+          {subtitle && (
+            <p className="mt-1.5 text-sm text-muted-foreground">{subtitle}</p>
+          )}
+        </div>
+      </div>
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
   );
 }
@@ -71,13 +88,13 @@ export function Field({
 }
 
 export const inputClass =
-  "min-h-12 w-full rounded-lg border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring";
+  "min-h-12 w-full rounded-lg border bg-surface/40 px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 
 export function SubmitButton({ children }: { children: React.ReactNode }) {
   return (
     <button
       type="submit"
-      className="min-h-12 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/85"
+      className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[.99]"
     >
       {children}
     </button>
@@ -88,7 +105,7 @@ export function GhostButton({ children }: { children: React.ReactNode }) {
   return (
     <button
       type="submit"
-      className="min-h-11 rounded-lg border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-3.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
     >
       {children}
     </button>

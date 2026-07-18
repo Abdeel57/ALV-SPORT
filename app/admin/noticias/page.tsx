@@ -82,10 +82,11 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
 
       {aiJobs.length > 0 && (
         <section className="rounded-2xl border p-4">
-          <h2 className="mb-1 font-display text-xl">Crónicas generadas por IA</h2>
+          <h2 className="mb-1 font-display text-xl">Crónicas automáticas</h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            Al finalizar un partido se genera un borrador automáticamente.
-            Nunca se publica solo: revísalo, edítalo y publícalo tú.
+            Al finalizar un partido se arma un borrador con los datos reales
+            del juego (marcador, figuras, récords). Nunca se publica solo:
+            revísalo, edítalo y publícalo tú.
           </p>
           <ul className="flex flex-col gap-2">
             {aiJobs.map((job) => (
@@ -168,7 +169,7 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
               </span>
               {item.ai_generated && (
                 <span className="rounded-md border border-brand-amber/50 px-2 py-0.5 text-xs text-brand-amber">
-                  IA — revisar
+                  Auto — revisar
                 </span>
               )}
               <StatusChip status={item.status} />

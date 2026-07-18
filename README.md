@@ -1,8 +1,8 @@
 # ALV SPORT — League OS
 
-PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas, perfiles, notificaciones push y crónicas con IA. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte **por configuración** — basquetbol y voleibol ya funcionan end-to-end sin una línea de código específica.
+PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas, perfiles, notificaciones push y crónicas automáticas. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte **por configuración** — basquetbol y voleibol ya funcionan end-to-end sin una línea de código específica.
 
-**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + Storage + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA + Web Push) · Zod · Vitest · Mercado Pago · Anthropic (claude-sonnet-4-6).
+**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + Storage + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA + Web Push) · Zod · Vitest · Mercado Pago.
 
 ## Arquitectura en 4 reglas
 
@@ -34,7 +34,7 @@ erDiagram
     venues ||--o{ courts : ""
     courts ||--o{ games : ""
     teams ||--o{ push_subscriptions : "seguir equipo"
-    games ||--o{ ai_jobs : "crónicas IA (borrador)"
+    games ||--o{ ai_jobs : "crónicas automáticas (borrador)"
     organizations ||--o{ news : ""
     organizations ||--o{ sponsors : ""
     organizations ||--o{ audit_log : "quién/qué/antes/después"
@@ -85,7 +85,6 @@ Con `.env.local` configurado (ver tabla), el sitio consume la base real con Real
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | build | Suscripción Web Push del navegador |
 | `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | server | Firma de envíos push |
 | `SUPABASE_WEBHOOK_SECRET` | server | Header `x-alv-webhook-secret` de los triggers pg_net |
-| `ANTHROPIC_API_KEY` | server | Crónicas IA (nunca `NEXT_PUBLIC`; endpoint no expuesto) |
 
 Los `NEXT_PUBLIC_*` se **hornean en build** (en Railway van como build args del Dockerfile).
 
@@ -153,7 +152,7 @@ components/           # UI (shadcn), anotador, admin
 lib/engine/           # Motor puro: marcador, standings, stats, calendario (74 pruebas)
 lib/offline/          # Cola IndexedDB + sync engine idempotente
 lib/data/             # Proveedores público: supabase (Realtime) | seed (sin red)
-lib/admin|push|ai/    # Server actions, Web Push, crónicas IA
+lib/admin|push|ai/    # Server actions, Web Push, crónicas automáticas
 lib/seed-data/        # Fuente única: seeds SQL + fixtures + configs de deporte
 scripts/              # apply-migrations, generate-seed, security-audit, demo-volleyball
 supabase/migrations/  # 18 migraciones versionadas (RLS en todas las tablas)
@@ -165,7 +164,7 @@ supabase/migrations/  # 18 migraciones versionadas (RLS en todas las tablas)
 - **Fase 1 — Mesa de anotación** ✅ `/anotador`: alineaciones → anotación de 2 taps (botones desde config) → deshacer como `correction` → finalizar con doble confirmación. Offline-first: IndexedDB + sync idempotente en orden; `/anotador/demo` para probar sin cuenta.
 - **Fase 2 — Sitio público** ✅ `/` (en vivo Realtime, próximos, resultados, líderes), `/partido/[id]` (tabs Resumen/Timeline/Estadísticas/Alineaciones), `/tabla` (desempates del config), perfiles de equipo/jugador, `/buscar`. Lighthouse mobile: home 97, partido 93.
 - **Fase 3 — Admin** ✅ CRUDs con Zod es-MX, generador round-robin con vista previa, inscripciones con Mercado Pago (checkout + webhook) o efectivo, sanciones que bloquean titulares (RLS + UI), noticias/patrocinadores, auditoría.
-- **Fase 4 — Push + IA** ✅ "Seguir equipo" → Web Push VAPID por preferencias; envío 100% servidor vía triggers pg_net con secreto; crónicas con claude-sonnet-4-6 (salida estructurada) que SIEMPRE quedan en borrador "IA — revisar" con botón Regenerar.
+- **Fase 4 — Push + crónicas** ✅ "Seguir equipo" → Web Push VAPID por preferencias; envío 100% servidor vía triggers pg_net con secreto; crónicas **automáticas y deterministas** (armadas desde los datos reales del partido — marcador, figuras, récords; sin IA ni API keys) que SIEMPRE quedan en borrador "Auto — revisar" con botón Regenerar.
 - **Fase 5 — Endurecimiento y entrega** ✅ Auditoría de seguridad 6/6, rate limiting, firma MP, paginación, EXPLAIN, 404/error ALV, voleibol por pura configuración, este README.
 
 ### Avisos prácticos

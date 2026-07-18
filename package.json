@@ -19,7 +19,6 @@
     "security:audit": "tsx scripts/security-audit.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.112.3",
     "@base-ui/react": "^1.6.0",
     "@serwist/next": "^9.5.11",
     "@supabase/ssr": "^0.12.3",

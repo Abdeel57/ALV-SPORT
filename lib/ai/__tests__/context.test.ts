@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildGameAiContext, buildPrompt, type GameAiInput } from "../context";
+import { buildGameAiContext, type GameAiContext, type GameAiInput } from "../context";
+import { buildRecap } from "../recap";
 import {
   eventsByGameId,
   gameId,
@@ -7,6 +8,7 @@ import {
   softballConfig,
   teamId,
 } from "@/lib/seed-data";
+import { volleyballConfig } from "@/lib/seed-data/volleyball-config";
 
 function makeInput(
   seasonMaxes: GameAiInput["seasonMaxes"] = {},
@@ -70,13 +72,65 @@ describe("buildGameAiContext (juego 1 del seed)", () => {
   });
 });
 
-describe("buildPrompt", () => {
-  it("incluye los datos estructurados y los requisitos es-MX", () => {
+describe("buildRecap (crónica determinista, sin IA)", () => {
+  it("redacta el resultado real: Coyotes gana 7-6", () => {
+    const input = makeInput();
+    const story = buildRecap(input, buildGameAiContext(input));
+    expect(story.titulo).toContain("Coyotes");
+    expect(story.titulo).toContain("7-6");
+    expect(story.resumen).toContain("Coyotes se impuso 7-6 a Huracanes");
+    expect(story.resumen.length).toBeGreaterThan(50);
+  });
+
+  it("elige un MVP real del equipo ganador con su línea de números", () => {
+    const input = makeInput();
+    const story = buildRecap(input, buildGameAiContext(input));
+    // El MVP es el jugador de mayor impacto del equipo ganador (Coyotes).
+    expect(["Jugador Uno", "Jugador Cuatro"]).toContain(story.mvp.nombre);
+    expect(story.mvp.justificacion).toContain("Coyotes");
+    expect(story.destacado.nombre).not.toBe(story.mvp.nombre);
+  });
+
+  it("menciona el récord de temporada cuando existe", () => {
     const input = makeInput({ H: { value: 2, holder: "Alguien Más" } });
-    const prompt = buildPrompt(input, buildGameAiContext(input));
-    expect(prompt).toContain("crónica");
-    expect(prompt).toContain("Coyotes");
-    expect(prompt).toContain('"maximoAnterior":"2 (Alguien Más)"');
-    expect(prompt).not.toContain("<");
+    const story = buildRecap(input, buildGameAiContext(input));
+    expect(story.resumen).toContain("marca de temporada");
+  });
+
+  it("gana por sets aunque anote menos puntos (winnerBy periods_won)", () => {
+    const input: GameAiInput = {
+      game: {
+        id: "g",
+        homeTeamId: "H",
+        awayTeamId: "A",
+        homeName: "Águilas",
+        awayName: "Escorpiones",
+        leagueName: "Liga de Voleibol",
+        seasonName: "Verano 2026",
+        scheduledAt: "2026-07-12T19:00:00Z",
+      },
+      config: volleyballConfig,
+      events: [],
+      playerNames: {},
+      playerTeams: {},
+      seasonMaxes: {},
+    };
+    // Águilas (local) gana 3 sets a 2 con MENOS puntos (95 vs 103).
+    const context: GameAiContext = {
+      homeScore: 95,
+      awayScore: 103,
+      lineScore: {
+        periods: [1, 2, 3, 4, 5],
+        home: [25, 20, 25, 10, 15],
+        away: [20, 25, 23, 25, 10],
+      },
+      performances: [],
+      records: [],
+      eventCount: 0,
+    };
+    const story = buildRecap(input, context);
+    expect(story.titulo).toContain("Águilas vence a Escorpiones 3-2");
+    expect(story.resumen).toContain("3 sets a 2");
+    expect(story.resumen).toContain("95");
   });
 });

@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AdminBottomNav, AdminSidebar } from "@/components/admin/admin-nav";
+import {
+  AdminBottomNav,
+  AdminMobileTopBar,
+  AdminSidebar,
+} from "@/components/admin/admin-nav";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { Card, CardContent } from "@/components/ui/card";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
@@ -13,7 +18,8 @@ export default function AdminLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   if (!hasSupabaseEnv()) {
     return (
-      <main className="flex min-h-dvh items-center justify-center px-4">
+      <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4">
+        <BrandLogo className="h-8" />
         <Card className="w-full max-w-md">
           <CardContent className="flex flex-col gap-3 py-8 text-sm text-muted-foreground">
             <p className="font-display text-2xl text-foreground">Panel administrativo</p>
@@ -43,8 +49,11 @@ export default function AdminLayout({
   return (
     <div className="flex min-h-dvh">
       <AdminSidebar />
-      {/* pb-24 deja aire para la barra inferior en móvil */}
-      <div className="min-w-0 flex-1 pb-24 lg:pb-8">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <AdminMobileTopBar />
+        {/* pb-24 deja aire para la barra inferior en móvil */}
+        <div className="flex-1 pb-24 lg:pb-10">{children}</div>
+      </div>
       <AdminBottomNav />
     </div>
   );

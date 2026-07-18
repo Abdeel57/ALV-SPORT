@@ -1,3 +1,4 @@
+import { CalendarPlus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/admin/confirm-button";
@@ -78,15 +79,19 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <AdminTitle>Calendario</AdminTitle>
-        <Link
-          href="/admin/calendario/generar"
-          className="ml-auto flex min-h-12 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
-        >
-          Generar calendario
-        </Link>
-      </div>
+      <AdminTitle
+        action={
+          <Link
+            href="/admin/calendario/generar"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[.99]"
+          >
+            <CalendarPlus className="size-4" aria-hidden />
+            Generar calendario
+          </Link>
+        }
+      >
+        Calendario
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
 
       {games.length === 0 ? (

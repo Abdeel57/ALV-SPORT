@@ -1,7 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildGameAiContext, type GameAiInput } from "./context";
-import { generateGameStory, hasAnthropicEnv, type AiStory } from "./generate";
+import { buildRecap } from "./recap";
+import { type AiStory } from "./schema";
 import {
   computePlayerStats,
   sportConfigSchema,
@@ -58,9 +59,6 @@ export async function runAiJob(
 ): Promise<AiJobResult> {
   const supabase = getServiceClient();
   if (!supabase) return { ok: false, error: "Supabase no configurado" };
-  if (!hasAnthropicEnv()) {
-    return { ok: false, error: "ANTHROPIC_API_KEY no configurada" };
-  }
 
   // Asegurar el job (idempotente por game_id).
   await supabase.from("ai_jobs").insert({ game_id: gameId }).select().maybeSingle();
@@ -88,7 +86,7 @@ export async function runAiJob(
   try {
     const input = await loadGameInput(supabase, gameId);
     const context = buildGameAiContext(input);
-    const story = await generateGameStory(input, context);
+    const story = buildRecap(input, context);
     const newsId = await saveDraft(supabase, input, context.records.length, story, job.news_id);
     await supabase
       .from("ai_jobs")
@@ -246,7 +244,7 @@ async function saveDraft(
     ...(recordCount > 0 ? ["", `🏆 Este partido dejó ${recordCount} récord(s) de temporada.`] : []),
     "",
     "---",
-    "🤖 Generado por IA — revisar antes de publicar.",
+    "✍️ Crónica automática — revisar y editar antes de publicar.",
   ].join("\n");
 
   if (existingNewsId) {

@@ -1,6 +1,17 @@
+import {
+  ArrowUpRight,
+  Ban,
+  CalendarPlus,
+  ClipboardCheck,
+  CreditCard,
+  type LucideIcon,
+  Trophy,
+  TriangleAlert,
+} from "lucide-react";
 import Link from "next/link";
 import { AdminTitle, EmptyRow, StatusChip } from "@/components/admin/ui";
 import { requireAdmin } from "@/lib/admin/auth";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,38 +29,84 @@ const timeFormat = new Intl.DateTimeFormat("es-MX", {
   timeZone: "America/Mexico_City",
 });
 
+const dateFormat = new Intl.DateTimeFormat("es-MX", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  timeZone: "America/Mexico_City",
+});
+
+const roleLabels: Record<string, string> = {
+  org_admin: "Administrador de liga",
+  season_manager: "Gestor de temporada",
+};
+
+const toneClasses: Record<"amber" | "red" | "silver", string> = {
+  amber: "text-brand-amber",
+  red: "text-primary",
+  silver: "text-brand-silver",
+};
+
 function StatTile({
   value,
   label,
   href,
   tone,
+  icon: Icon,
 }: {
   value: number;
   label: string;
   href: string;
   tone: "amber" | "red" | "silver";
+  icon: LucideIcon;
 }) {
-  const toneClass =
-    tone === "amber"
-      ? "text-brand-amber"
-      : tone === "red"
-        ? "text-primary"
-        : "text-brand-silver";
   return (
     <Link
       href={href}
-      className="flex flex-col gap-1 rounded-2xl border bg-card px-4 py-4 transition-colors hover:bg-muted"
+      className="card-elevated hover-lift group flex flex-col gap-3 rounded-2xl p-4"
     >
-      <span className={`font-display text-4xl tabular-nums ${toneClass}`}>{value}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-center justify-between">
+        <span
+          className={cn(
+            "flex size-9 items-center justify-center rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06]",
+            toneClasses[tone],
+          )}
+        >
+          <Icon className="size-4.5" aria-hidden />
+        </span>
+        <ArrowUpRight
+          className="size-4 text-muted-foreground/40 transition-colors group-hover:text-foreground"
+          aria-hidden
+        />
+      </div>
+      <div>
+        <span
+          className={cn(
+            "font-display block text-4xl leading-none tabular-nums",
+            toneClasses[tone],
+          )}
+        >
+          {value}
+        </span>
+        <span className="mt-1.5 block text-xs leading-snug text-muted-foreground">
+          {label}
+        </span>
+      </div>
     </Link>
   );
 }
 
+const quickActions: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/admin/temporadas", label: "Nueva temporada", icon: Trophy },
+  { href: "/admin/calendario/generar", label: "Generar calendario", icon: CalendarPlus },
+  { href: "/admin/inscripciones", label: "Registrar inscripción", icon: CreditCard },
+  { href: "/admin/sanciones", label: "Aplicar sanción", icon: Ban },
+];
+
 export default async function AdminDashboard() {
   const context = await requireAdmin();
   if (!context) return null; // el layout ya mostró el aviso de configuración
-  const { supabase } = context;
+  const { supabase, role } = context;
 
   const now = new Date();
   const dayStart = new Date(now);
@@ -102,35 +159,54 @@ export default async function AdminDashboard() {
   }
 
   const games = (todayGames.data ?? []) as unknown as GameRow[];
+  const todayLabel = dateFormat.format(now);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Dashboard</AdminTitle>
+    <main className="stagger mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-6 lg:px-8">
+      <AdminTitle
+        subtitle={
+          <span className="capitalize">{todayLabel}</span>
+        }
+        action={
+          <span className="rounded-full border border-brand-silver/25 bg-brand-silver/5 px-3 py-1.5 text-xs font-medium text-brand-silver">
+            {roleLabels[role] ?? "Administrador"}
+          </span>
+        }
+      >
+        Dashboard
+      </AdminTitle>
 
-      <section aria-label="Pendientes" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section
+        aria-label="Pendientes"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+      >
         <StatTile
           value={pendingSignups.count ?? 0}
           label="Solicitudes por revisar"
           href="/admin/solicitudes"
           tone="amber"
+          icon={ClipboardCheck}
         />
         <StatTile
           value={pendingRegs.count ?? 0}
           label="Pagos por confirmar"
           href="/admin/inscripciones"
           tone="amber"
+          icon={CreditCard}
         />
         <StatTile
           value={activeSanctions.count ?? 0}
           label="Sanciones activas"
           href="/admin/sanciones"
           tone="red"
+          icon={Ban}
         />
         <StatTile
           value={withoutScorekeeper}
           label="Partidos sin anotador (7 días)"
           href="/admin/calendario"
           tone="silver"
+          icon={TriangleAlert}
         />
       </section>
 
@@ -142,20 +218,28 @@ export default async function AdminDashboard() {
           <EmptyRow>No hay partidos programados para hoy.</EmptyRow>
         ) : (
           <ul className="flex flex-col gap-2">
-            {games.map((game) => (
-              <li
-                key={game.id}
-                className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
-              >
-                <span className="min-w-0 truncate">
-                  {game.away?.name ?? "—"} @ {game.home?.name ?? "—"}
-                </span>
-                <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-                  {timeFormat.format(new Date(game.scheduled_at))}
-                  <StatusChip status={game.status} />
-                </span>
-              </li>
-            ))}
+            {games.map((game) => {
+              const live = game.status === "in_progress";
+              return (
+                <li
+                  key={game.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-4 py-3 text-sm transition-colors hover:bg-muted"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    {live && <span className="live-dot size-2 shrink-0" aria-hidden />}
+                    <span className="truncate">
+                      {game.away?.name ?? "—"} @ {game.home?.name ?? "—"}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2.5 text-muted-foreground">
+                    <span className="tabular-nums">
+                      {timeFormat.format(new Date(game.scheduled_at))}
+                    </span>
+                    <StatusChip status={game.status} />
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -164,21 +248,24 @@ export default async function AdminDashboard() {
         <h2 id="rapidos" className="font-display text-xl">
           Accesos rápidos
         </h2>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { href: "/admin/temporadas", label: "Nueva temporada" },
-            { href: "/admin/calendario/generar", label: "Generar calendario" },
-            { href: "/admin/inscripciones", label: "Registrar inscripción" },
-            { href: "/admin/sanciones", label: "Aplicar sanción" },
-          ].map((action) => (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="flex min-h-14 items-center justify-center rounded-xl border bg-secondary px-4 text-center text-sm font-semibold transition-colors hover:bg-muted"
-            >
-              {action.label}
-            </Link>
-          ))}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {quickActions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="card-elevated hover-lift group flex min-h-24 flex-col justify-between gap-3 rounded-2xl p-4"
+              >
+                <span className="flex size-9 items-center justify-center rounded-xl bg-white/[0.04] text-brand-amber ring-1 ring-white/[0.06]">
+                  <Icon className="size-4.5" aria-hidden />
+                </span>
+                <span className="text-sm font-semibold leading-snug">
+                  {action.label}
+                </span>
+              </Link>
+            );
+          })}
         </div>
       </section>
     </main>

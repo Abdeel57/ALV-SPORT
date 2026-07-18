@@ -116,7 +116,6 @@ restaura el respaldo previo.
 
 - [ ] **Activar respaldos gestionados** de Postgres en Railway.
 - [ ] **Rotar el token de Railway** usado en los despliegues manuales.
-- [ ] `ANTHROPIC_API_KEY` en el servicio `app` para encender las crónicas IA.
 - [ ] `MP_ACCESS_TOKEN` + `MP_WEBHOOK_SECRET` para cobros en línea.
 - [ ] (Opcional) `SENTRY_DSN` para alertas de error.
 - [ ] (Opcional) Dominio propio con HTTPS.
