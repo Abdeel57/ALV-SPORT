@@ -57,7 +57,7 @@ export default async function AdminDashboard() {
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const weekEnd = new Date(dayStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [todayGames, pendingRegs, activeSanctions, upcoming] = await Promise.all([
+  const [todayGames, pendingRegs, activeSanctions, pendingSignups, upcoming] = await Promise.all([
     supabase
       .from("games")
       .select(
@@ -75,6 +75,10 @@ export default async function AdminDashboard() {
       .from("sanctions")
       .select("id", { count: "exact", head: true })
       .eq("status", "active"),
+    supabase
+      .from("signup_requests")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "contacted"]),
     supabase
       .from("games")
       .select("id")
@@ -103,7 +107,13 @@ export default async function AdminDashboard() {
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
       <AdminTitle>Dashboard</AdminTitle>
 
-      <section aria-label="Pendientes" className="grid grid-cols-3 gap-3">
+      <section aria-label="Pendientes" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          value={pendingSignups.count ?? 0}
+          label="Solicitudes por revisar"
+          href="/admin/solicitudes"
+          tone="amber"
+        />
         <StatTile
           value={pendingRegs.count ?? 0}
           label="Pagos por confirmar"

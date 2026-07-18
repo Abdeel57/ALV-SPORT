@@ -22,6 +22,7 @@ const all = [
   { href: "/admin/jugadores", label: "Jugadores" },
   { href: "/admin/temporadas", label: "Temporadas y divisiones" },
   { href: "/admin/sedes", label: "Sedes y canchas" },
+  { href: "/admin/solicitudes", label: "Solicitudes de registro" },
   { href: "/admin/inscripciones", label: "Inscripciones y pagos" },
   { href: "/admin/sanciones", label: "Sanciones" },
   { href: "/admin/noticias", label: "Noticias" },

@@ -5,6 +5,7 @@ import { AdminTitle } from "@/components/admin/ui";
 export const metadata: Metadata = { title: "Más" };
 
 const sections = [
+  { href: "/admin/solicitudes", label: "Solicitudes de registro", detail: "Coaches y jugadores que se auto-inscribieron" },
   { href: "/admin/jugadores", label: "Jugadores", detail: "Altas, fotos y rosters" },
   { href: "/admin/temporadas", label: "Temporadas y divisiones", detail: "Estructura de la competencia" },
   { href: "/admin/sedes", label: "Sedes y canchas", detail: "Dónde se juega" },

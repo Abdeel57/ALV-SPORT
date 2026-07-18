@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 const WINDOW_MS = 60_000;
 const LIMITS: Array<{ test: (path: string) => boolean; bucket: string; limit: number }> = [
   { test: (p) => p.startsWith("/buscar"), bucket: "buscar", limit: 20 },
+  { test: (p) => p.startsWith("/inscribirse"), bucket: "inscribirse", limit: 12 },
   { test: (p) => p.startsWith("/api/"), bucket: "api", limit: 60 },
 ];
 

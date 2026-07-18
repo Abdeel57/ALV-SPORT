@@ -97,6 +97,7 @@ export function GhostButton({ children }: { children: React.ReactNode }) {
 
 const chipStyles: Record<string, string> = {
   pending: "border-brand-amber/50 text-brand-amber",
+  contacted: "border-primary/40 text-primary",
   approved: "border-brand-silver/50 text-brand-silver",
   paid: "border-primary/50 text-primary",
   rejected: "border-border text-muted-foreground",
@@ -112,6 +113,7 @@ const chipStyles: Record<string, string> = {
 
 const chipLabels: Record<string, string> = {
   pending: "Pendiente",
+  contacted: "Contactado",
   approved: "Aprobada",
   paid: "Pagado",
   rejected: "Rechazada",

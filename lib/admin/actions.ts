@@ -24,6 +24,8 @@ import {
   venueSchema,
 } from "./schemas";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
+import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
+import { splitFullName } from "@/lib/utils";
 
 async function ctx(): Promise<AdminContext> {
   const context = await requireAdmin();
@@ -544,4 +546,148 @@ export async function regenerateAiNews(gameId: string): Promise<void> {
     fail(NEWS, result.error ?? "No se pudo regenerar la crónica");
   }
   done(NEWS);
+}
+
+/* ----------------- Solicitudes de auto-registro (Fase 6) --------------- */
+
+const SIGNUPS = "/admin/solicitudes";
+
+interface SignupRow {
+  id: string;
+  kind: "coach" | "player";
+  status: string;
+  season_id: string | null;
+  full_name: string;
+  team_name: string | null;
+  resolved_team_id: string | null;
+  resolved_player_id: string | null;
+}
+
+async function loadSignup(
+  context: AdminContext,
+  id: string,
+): Promise<SignupRow> {
+  const { data } = await context.supabase
+    .from("signup_requests")
+    .select("id, kind, status, season_id, full_name, team_name, resolved_team_id, resolved_player_id")
+    .eq("id", id)
+    .maybeSingle();
+  const row = data as SignupRow | null;
+  if (!row) fail(SIGNUPS, "La solicitud no existe");
+  return row;
+}
+
+async function closeSignup(
+  context: AdminContext,
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await context.supabase
+    .from("signup_requests")
+    .update({ ...patch, reviewed_by: context.userId, reviewed_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) fail(SIGNUPS, error.message);
+}
+
+/** Aprueba a un coach: crea su equipo y siembra la inscripción (pago). */
+export async function approveCoachRequest(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(approveCoachSchema, formData, SIGNUPS);
+  const request = await loadSignup(context, data.requestId);
+  if (request.kind !== "coach") fail(SIGNUPS, "Esta solicitud no es de coach");
+  if (request.resolved_team_id) fail(SIGNUPS, "El equipo ya fue creado");
+
+  const { data: created, error: teamError } = await context.supabase
+    .from("teams")
+    .insert({
+      organization_id: context.organizationId,
+      division_id: data.divisionId,
+      name: request.team_name ?? request.full_name,
+      slug: data.slug,
+      color: data.color,
+    })
+    .select("id")
+    .single();
+  if (teamError) fail(SIGNUPS, teamError.message);
+  const teamId = (created as { id: string }).id;
+
+  // Siembra la inscripción (queda pendiente de pago en /admin/inscripciones).
+  if (request.season_id) {
+    await context.supabase.from("registrations").insert({
+      season_id: request.season_id,
+      team_id: teamId,
+      amount: data.amount ?? null,
+      requested_by: context.userId,
+    });
+  }
+
+  await closeSignup(context, request.id, {
+    status: "approved",
+    resolved_team_id: teamId,
+  });
+  revalidatePath("/admin/equipos");
+  revalidatePath("/admin/inscripciones");
+  done(SIGNUPS);
+}
+
+/** Aprueba a un jugador: crea el jugador y lo pone en el roster elegido. */
+export async function approvePlayerRequest(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(approvePlayerSchema, formData, SIGNUPS);
+  const request = await loadSignup(context, data.requestId);
+  if (request.kind !== "player") fail(SIGNUPS, "Esta solicitud no es de jugador");
+  if (request.resolved_player_id) fail(SIGNUPS, "El jugador ya fue creado");
+
+  // Elegibilidad: no puede estar ya en un roster activo de esa división.
+  const { data: teamRow } = await context.supabase
+    .from("teams")
+    .select("division_id")
+    .eq("id", data.teamId)
+    .single();
+  const divisionId = (teamRow as { division_id: string } | null)?.division_id;
+  if (!divisionId) fail(SIGNUPS, "Equipo inválido");
+
+  const { firstName, lastName } = splitFullName(request.full_name);
+  const { data: created, error: playerError } = await context.supabase
+    .from("players")
+    .insert({
+      organization_id: context.organizationId,
+      first_name: firstName || request.full_name,
+      last_name: lastName || "",
+    })
+    .select("id")
+    .single();
+  if (playerError) fail(SIGNUPS, playerError.message);
+  const playerId = (created as { id: string }).id;
+
+  const { error: rosterError } = await context.supabase.from("rosters").insert({
+    team_id: data.teamId,
+    player_id: playerId,
+    jersey_number: data.jerseyNumber,
+    position: data.position ?? null,
+  });
+  if (rosterError) fail(SIGNUPS, rosterError.message);
+
+  await closeSignup(context, request.id, {
+    status: "approved",
+    resolved_player_id: playerId,
+  });
+  revalidatePath("/admin/jugadores");
+  done(SIGNUPS);
+}
+
+export async function markSignupContacted(id: string): Promise<void> {
+  const context = await ctx();
+  await closeSignup(context, id, { status: "contacted" });
+  done(SIGNUPS);
+}
+
+export async function rejectSignup(id: string): Promise<void> {
+  const context = await ctx();
+  await closeSignup(context, id, { status: "rejected" });
+  done(SIGNUPS);
+}
+
+export async function deleteSignup(id: string): Promise<void> {
+  await deleteRow(await ctx(), "signup_requests", id, SIGNUPS);
 }

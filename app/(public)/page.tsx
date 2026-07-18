@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { GameCard } from "@/components/public/game-card";
 import { HeroGame } from "@/components/public/hero-game";
+import { JoinCta } from "@/components/public/join-cta";
 import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
@@ -61,6 +62,8 @@ export default async function Home({ searchParams }: HomeProps) {
           />
         </section>
       )}
+
+      <JoinCta />
 
       {liveRest.length > 0 && (
         <section aria-labelledby="en-vivo" className="flex flex-col gap-3.5">
