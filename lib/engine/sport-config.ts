@@ -16,6 +16,18 @@ export const playerStatIncrementSchema = z.object({
   increment: z.number().int().default(1),
 });
 
+/**
+ * Campo declarado en el `payload jsonb` de un evento. Permite que cada
+ * deporte describa qué datos extra lleva un evento (ej. un cuadrangular con
+ * `{ distancia: number }`) y validarlos antes de escribir en la fuente de
+ * verdad. Sin campos declarados, el payload es libre (retrocompatible).
+ */
+export const payloadFieldSchema = z.object({
+  key: z.string().min(1),
+  type: z.enum(["string", "number", "boolean"]),
+  required: z.boolean().default(false),
+});
+
 export const eventTypeDefSchema = z.object({
   /** Coincide con game_events.event_type. */
   key: z.string().min(1),
@@ -25,6 +37,8 @@ export const eventTypeDefSchema = z.object({
   scoreDelta: z.number().int().default(0),
   playerStats: z.array(playerStatIncrementSchema).default([]),
   requiresPlayer: z.boolean().default(false),
+  /** Estructura opcional del payload jsonb de este evento. */
+  payloadFields: z.array(payloadFieldSchema).default([]),
 });
 
 export const periodStructureSchema = z.object({
@@ -112,6 +126,7 @@ export const sportConfigSchema = z
 
 export type SportConfig = z.infer<typeof sportConfigSchema>;
 export type EventTypeDef = z.infer<typeof eventTypeDefSchema>;
+export type PayloadField = z.infer<typeof payloadFieldSchema>;
 export type PeriodStructure = z.infer<typeof periodStructureSchema>;
 export type StandingsConfig = z.infer<typeof standingsConfigSchema>;
 export type Tiebreaker = z.infer<typeof tiebreakerSchema>;

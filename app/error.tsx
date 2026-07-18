@@ -11,6 +11,22 @@ export default function ErrorPage({
 }) {
   useEffect(() => {
     console.error(error);
+    // Reporta el error al servidor para que quede en los logs con contexto.
+    try {
+      const body = JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        digest: error.digest,
+        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      });
+      if (typeof navigator !== "undefined" && "sendBeacon" in navigator) {
+        navigator.sendBeacon("/api/telemetry", body);
+      } else {
+        void fetch("/api/telemetry", { method: "POST", body, keepalive: true });
+      }
+    } catch {
+      // El reporte nunca debe romper la página de error.
+    }
   }, [error]);
 
   return (

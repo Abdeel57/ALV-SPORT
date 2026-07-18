@@ -1,0 +1,59 @@
+name: CI
+
+# Compuerta de calidad: corre en cada push y PR a main. Bloquea merges que
+# rompan tipos, lint, pruebas del motor o el build de producción.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Compuerta (typecheck · lint · test · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (TypeScript estricto)
+        run: pnpm typecheck
+
+      - name: Lint (ESLint, sin any)
+        run: pnpm lint
+
+      - name: Pruebas del motor (Vitest)
+        run: pnpm test
+
+      # El build no requiere Supabase: la capa de datos cae al proveedor seed
+      # cuando no hay proyecto (hasSupabaseEnv()). Verifica que compile y que
+      # se genere el service worker.
+      - name: Build de producción
+        run: pnpm build
+
+      - name: Seed determinista (no debe cambiar el archivo)
+        run: |
+          pnpm seed:generate
+          if ! git diff --quiet -- supabase/seed.sql; then
+            echo "::error::supabase/seed.sql quedó desactualizado; corre 'pnpm seed:generate' y commitea."
+            git --no-pager diff -- supabase/seed.sql
+            exit 1
+          fi

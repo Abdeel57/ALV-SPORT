@@ -109,6 +109,10 @@ La infraestructura completa vive en Railway: el stack open-source de Supabase (P
 
 > Supabase Cloud funciona como alternativa sin cambiar código: apunta las env vars al proyecto cloud y usa `supabase db push`.
 
+## Operaciones y calidad
+
+Cada push/PR a `main` corre la compuerta completa en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): typecheck, lint, pruebas del motor, build y verificación de seed determinista. Para respaldos, observabilidad de errores, auditoría de seguridad, migraciones y rollback, ver el runbook [OPERACIONES.md](OPERACIONES.md).
+
 ## Endurecimiento (Fase 5)
 
 - **Auditoría de accesos por rol** — [scripts/security-audit.ts](scripts/security-audit.ts) crea usuarios temporales reales y ataca la API de producción: anónimo insertando en `game_events`, scorekeeper editando equipos y anotando en partidos ajenos/cerrados, team_captain leyendo pagos de otros, webhooks de push/IA sin secreto. Resultado actual: **6/6 bloqueados**. (La corrida inicial encontró una fuga real — cualquier miembro de la org podía leer inscripciones con montos — corregida en la migración `..._fix_registrations_rls.sql`.)
