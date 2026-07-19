@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
+import { BrandLoader } from "@/components/brand/brand-loader";
 import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { GameCard } from "@/components/public/game-card";
 import { HeroGame } from "@/components/public/hero-game";
@@ -18,6 +19,18 @@ interface HomeProps {
 
 export default async function Home({ searchParams }: HomeProps) {
   const { liga } = await searchParams;
+  // El contenido va en un <Suspense> con key por liga: al cambiar de liga
+  // (?liga=) el boundary es nuevo y el fallback (BrandLoader) aparece de
+  // inmediato — sin esto, Next mantiene la vista anterior congelada hasta que
+  // el servidor responde y el cambio de pestaña se siente "muerto".
+  return (
+    <Suspense key={liga ?? "principal"} fallback={<BrandLoader variant="seccion" />}>
+      <HomeContent liga={liga} />
+    </Suspense>
+  );
+}
+
+async function HomeContent({ liga }: { liga: string | undefined }) {
   // Solo el contenido principal (hero, en vivo, tabla, líderes) bloquea el
   // render; noticias y patrocinadores fluyen aparte con <Suspense> para que
   // lo de arriba pinte antes.

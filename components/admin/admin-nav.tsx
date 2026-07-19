@@ -121,7 +121,9 @@ export function AdminBottomNav() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                  // active:scale da la reacción táctil en el milisegundo del
+                  // toque; el loading.tsx del admin cubre la espera de datos.
+                  "relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-[color,transform] duration-150 motion-safe:active:scale-[.93]",
                   active ? "text-brand-amber" : "text-muted-foreground",
                 )}
               >
@@ -172,7 +174,7 @@ export function AdminSidebar() {
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "group relative flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                    "group relative flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm transition-[color,background-color,transform] duration-150 motion-safe:active:scale-[.98]",
                     active
                       ? "bg-secondary font-semibold text-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",

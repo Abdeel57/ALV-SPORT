@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChipPendingOverlay } from "@/components/public/chip-status";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -42,7 +43,7 @@ export function LeagueChips({
             key={league.slug}
             href={hrefFor(league.slug, index)}
             aria-current={active ? "page" : undefined}
-            className={`-skew-x-12 border px-4 py-2 text-sm transition-colors ${
+            className={`relative -skew-x-12 border px-4 py-2 text-sm transition-all duration-150 motion-safe:active:scale-[.96] ${
               active
                 ? "border-brand-amber/70 bg-secondary shadow-[inset_0_-2px_0_var(--brand-amber)]"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -53,6 +54,7 @@ export function LeagueChips({
             >
               {league.name}
             </span>
+            <ChipPendingOverlay />
           </Link>
         );
       })}

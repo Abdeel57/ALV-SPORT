@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { BrandLoader } from "@/components/brand/brand-loader";
 import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
@@ -17,6 +19,16 @@ interface PageProps {
 
 export default async function TablaPage({ searchParams }: PageProps) {
   const { liga } = await searchParams;
+  // Mismo patrón que el home: boundary con key por liga para que el cambio de
+  // pestaña muestre la pantalla de carga al instante en vez de congelarse.
+  return (
+    <Suspense key={liga ?? "principal"} fallback={<BrandLoader variant="seccion" />}>
+      <TablaContent liga={liga} />
+    </Suspense>
+  );
+}
+
+async function TablaContent({ liga }: { liga: string | undefined }) {
   const provider = getPublicData();
   const [standings, leagues] = await Promise.all([
     provider.getStandings(liga),
