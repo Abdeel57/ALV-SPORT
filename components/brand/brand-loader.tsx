@@ -12,9 +12,8 @@ import { cn } from "@/lib/utils";
  * así que pinta al instante. Aparece con un retraso de 150 ms para que las
  * navegaciones rápidas no lo "flasheen".
  *
- * Se usa en los `loading.tsx` de rutas SIN skeleton propio (entrada a la
- * app, /admin); las vistas públicas de contenido conservan sus skeletons,
- * que comunican mejor la estructura de lo que viene.
+ * Se usa en todos los `loading.tsx`: raíz (viewport completo) y dentro de
+ * los shells público y de admin (variante `seccion`, el nav queda fijo).
  */
 
 // Dimensiones intrínsecas del webp (evita layout shift).

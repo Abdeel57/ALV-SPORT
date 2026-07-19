@@ -95,16 +95,3 @@ export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   );
 }
 
-export function PageSkeleton() {
-  return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
-      <Skeleton className="h-10 w-56" />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <GameCardSkeleton />
-        <GameCardSkeleton />
-        <GameCardSkeleton />
-      </div>
-      <TableSkeleton />
-    </main>
-  );
-}
