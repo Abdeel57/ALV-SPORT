@@ -1,4 +1,5 @@
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { BismarkCredit } from "@/components/public/bismark-credit";
 import { SiteHeader } from "@/components/public/site-header";
 import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { getSponsors } from "@/lib/data/extras";
@@ -23,6 +24,7 @@ export default async function PublicLayout({
             </p>
           </div>
         </div>
+        <BismarkCredit />
       </footer>
     </div>
   );
