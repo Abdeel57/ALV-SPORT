@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { ConfirmButton } from "@/components/admin/confirm-button";
+import { InitialsAvatar } from "@/components/public/team-initials";
 import {
   AdminTitle,
   EmptyRow,
@@ -145,12 +147,18 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
             {players.map((player) => (
               <li key={player.id} className="flex items-center gap-3 rounded-xl border px-4 py-3">
                 {player.photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={player.photo_url} alt="" className="size-10 rounded-full border object-cover" />
+                  <Image
+                    src={player.photo_url}
+                    alt=""
+                    width={40}
+                    height={40}
+                    className="size-10 rounded-full border object-cover"
+                  />
                 ) : (
-                  <span aria-hidden className="flex size-10 items-center justify-center rounded-full border bg-secondary font-display">
-                    {player.first_name.slice(0, 1)}
-                  </span>
+                  <InitialsAvatar
+                    name={`${player.first_name} ${player.last_name}`}
+                    className="size-10 border text-sm"
+                  />
                 )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">

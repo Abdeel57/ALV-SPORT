@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import {
   AdminTitle,
@@ -83,8 +84,13 @@ export default async function PatrocinadoresPage({ searchParams }: PageProps) {
           {sponsors.map((sponsor) => (
             <li key={sponsor.id} className="flex items-center gap-3 rounded-xl border px-4 py-3">
               {sponsor.logo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={sponsor.logo_url} alt="" className="h-8 w-14 rounded border object-contain" />
+                <Image
+                  src={sponsor.logo_url}
+                  alt=""
+                  width={56}
+                  height={32}
+                  className="h-8 w-14 rounded border object-contain"
+                />
               ) : (
                 <span className="flex h-8 w-14 items-center justify-center rounded border bg-secondary text-xs">
                   Logo

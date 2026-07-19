@@ -1,4 +1,6 @@
+import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits";
 import { GameCard } from "@/components/public/game-card";
 import { HeroGame } from "@/components/public/hero-game";
@@ -16,11 +18,10 @@ interface HomeProps {
 
 export default async function Home({ searchParams }: HomeProps) {
   const { liga } = await searchParams;
-  const [data, homeSponsors, news] = await Promise.all([
-    getPublicData().getHome(liga),
-    getSponsors("home"),
-    getPublishedNews(3),
-  ]);
+  // Solo el contenido principal (hero, en vivo, tabla, líderes) bloquea el
+  // render; noticias y patrocinadores fluyen aparte con <Suspense> para que
+  // lo de arriba pinte antes.
+  const data = await getPublicData().getHome(liga);
 
   if (!data) {
     return (
@@ -127,40 +128,13 @@ export default async function Home({ searchParams }: HomeProps) {
         )}
       </section>
 
-      {news.length > 0 && (
-        <section aria-labelledby="noticias" className="flex flex-col gap-3.5">
-          <SectionTitle>
-            <span id="noticias">Noticias</span>
-          </SectionTitle>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {news.map((item) => (
-              <article
-                key={item.id}
-                className="card-elevated sheen hover-lift group flex flex-col overflow-hidden rounded-xl"
-              >
-                {item.imageUrl && (
-                  <div className="overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt=""
-                      className="h-36 w-full object-cover transition-transform duration-200 motion-safe:group-hover:scale-[1.04]"
-                    />
-                  </div>
-                )}
-                <div className="flex flex-col gap-1.5 px-4 pt-3 pb-4">
-                  <h3 className="font-display text-lg leading-snug">{item.title}</h3>
-                  <p className="line-clamp-3 text-sm text-muted-foreground">
-                    {item.body}
-                  </p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
+      <Suspense fallback={null}>
+        <HomeNews />
+      </Suspense>
 
-      <SponsorStrip sponsors={homeSponsors} />
+      <Suspense fallback={null}>
+        <HomeSponsors />
+      </Suspense>
 
       <section aria-labelledby="destacados" className="flex flex-col gap-3.5">
         <SectionTitle>
@@ -210,4 +184,47 @@ export default async function Home({ searchParams }: HomeProps) {
       </section>
     </main>
   );
+}
+
+/** Sección de noticias — fluye por separado vía <Suspense>. */
+async function HomeNews() {
+  const news = await getPublishedNews(3);
+  if (news.length === 0) return null;
+  return (
+    <section aria-labelledby="noticias" className="flex flex-col gap-3.5">
+      <SectionTitle>
+        <span id="noticias">Noticias</span>
+      </SectionTitle>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {news.map((item) => (
+          <article
+            key={item.id}
+            className="card-elevated sheen hover-lift group flex flex-col overflow-hidden rounded-xl"
+          >
+            {item.imageUrl && (
+              <div className="relative h-36 w-full overflow-hidden">
+                <Image
+                  src={item.imageUrl}
+                  alt=""
+                  fill
+                  sizes="(max-width: 640px) 100vw, 33vw"
+                  className="object-cover transition-transform duration-200 motion-safe:group-hover:scale-[1.04]"
+                />
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5 px-4 pt-3 pb-4">
+              <h3 className="font-display text-lg leading-snug">{item.title}</h3>
+              <p className="line-clamp-3 text-sm text-muted-foreground">{item.body}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Franja de patrocinadores del home — fluye por separado vía <Suspense>. */
+async function HomeSponsors() {
+  const homeSponsors = await getSponsors("home");
+  return <SponsorStrip sponsors={homeSponsors} />;
 }

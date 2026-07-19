@@ -5,15 +5,20 @@ import "./globals.css";
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
 // Display de marca: itálica condensada bold (Kanit tiene itálicas reales;
 // Saira Condensed no las ofrece en Google Fonts).
+// Solo se usan dos variantes reales: 700 itálica (utility `font-display`:
+// títulos, marcadores, nombres) y 700 normal (CardTitle vía `font-heading`).
+// Antes se cargaban 6 archivos (600/700/800 × normal/itálica); ahora 2.
 const kanit = Kanit({
   variable: "--font-kanit",
   subsets: ["latin"],
-  weight: ["600", "700", "800"],
+  weight: ["700"],
   style: ["normal", "italic"],
+  display: "swap",
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";

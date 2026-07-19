@@ -140,12 +140,22 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Atmósfera de estadio nocturno: luces frías muy tenues sobre el negro. */
+  }
+  /*
+   * Atmósfera de estadio nocturno en una capa fija propia (::before) en vez de
+   * `background-attachment: fixed` en el body — esto último fuerza repintados
+   * costosos al hacer scroll en móvil (jank). Una capa fija se compone en GPU.
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
     background-image:
       radial-gradient(60rem 42rem at 85% -12%, rgb(227 43 30 / 0.06), transparent 60%),
       radial-gradient(48rem 34rem at -12% 24%, rgb(245 165 11 / 0.045), transparent 60%),
       radial-gradient(44rem 32rem at 55% 115%, rgb(201 205 211 / 0.035), transparent 60%);
-    background-attachment: fixed;
   }
   /* Grano de transmisión: textura sutil sobre toda la página. */
   body::after {
@@ -281,9 +291,15 @@
   0%, 100% { box-shadow: 0 0 0 0 rgb(227 43 30 / 0.45); }
   50% { box-shadow: 0 0 10px 3px rgb(227 43 30 / 0.28); }
 }
+/*
+ * Entrada de secciones: SOLO transform (translateY). Deliberadamente sin
+ * opacity: animar opacity desde 0 esconde el elemento LCP y retrasa su métrica
+ * de "pintado" bajo throttling; con translate el contenido siempre es visible
+ * (LCP temprano) y la animación corre 100% en el compositor (60fps).
+ */
 @keyframes alv-rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(12px); }
+  to { transform: none; }
 }
 @keyframes alv-score-pop {
   from { opacity: 0; transform: translateY(-0.35em); }

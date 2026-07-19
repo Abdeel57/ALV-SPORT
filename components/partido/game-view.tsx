@@ -15,7 +15,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { GameDetail, LineupEntry } from "@/lib/data/types";
 import type { EngineGameEvent } from "@/lib/engine";
 import { computeScore, effectiveEvents } from "@/lib/engine";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /**
  * Vista completa del partido. Se renderiza en el servidor (SEO) y, si el
@@ -111,61 +110,77 @@ export function GameView({
 
   useEffect(() => {
     if (!realtime || status !== "in_progress") return;
-    let supabase;
-    try {
-      supabase = getSupabaseBrowserClient();
-    } catch {
-      return;
-    }
-    const columns =
-      "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id";
-    const channel = supabase
-      .channel(`public-game-${game.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "game_events",
-          filter: `game_id=eq.${game.id}`,
-        },
-        (payload) => {
-          const row = mapRow(payload.new as ServerEventRow);
-          setEvents((prev) =>
-            prev.some((event) => event.id === row.id)
-              ? prev
-              : [...prev, row].sort((a, b) => a.seq - b.seq),
-          );
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "games",
-          filter: `id=eq.${game.id}`,
-        },
-        (payload) => {
-          const next = (payload.new as { status?: string }).status;
-          if (next) setStatus(next as typeof status);
-        },
-      )
-      .subscribe((subscriptionStatus) => {
-        // Catch-up: postgres_changes no re-emite lo perdido entre el fetch
-        // SSR y la suscripción, ni durante reconexiones del canal.
-        if (subscriptionStatus !== "SUBSCRIBED") return;
-        void supabase
-          .from("game_events")
-          .select(columns)
-          .eq("game_id", game.id)
-          .order("seq")
-          .then(({ data }) => {
-            if (data) setEvents((data as ServerEventRow[]).map(mapRow));
-          });
-      });
+    type BrowserClient = ReturnType<
+      typeof import("@/lib/supabase/client").getSupabaseBrowserClient
+    >;
+    let client: BrowserClient | undefined;
+    let channel: ReturnType<BrowserClient["channel"]> | undefined;
+    let cancelled = false;
+
+    void (async () => {
+      // El cliente de Supabase (~40 KiB) se importa bajo demanda: solo cuando
+      // hay un partido EN VIVO. Así no pesa en el bundle inicial del partido
+      // (los finalizados —la mayoría— nunca lo descargan).
+      try {
+        const mod = await import("@/lib/supabase/client");
+        client = mod.getSupabaseBrowserClient();
+      } catch {
+        return;
+      }
+      if (cancelled || !client) return;
+      const activeClient = client;
+      const columns =
+        "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id";
+      channel = activeClient
+        .channel(`public-game-${game.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "game_events",
+            filter: `game_id=eq.${game.id}`,
+          },
+          (payload) => {
+            const row = mapRow(payload.new as ServerEventRow);
+            setEvents((prev) =>
+              prev.some((event) => event.id === row.id)
+                ? prev
+                : [...prev, row].sort((a, b) => a.seq - b.seq),
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "games",
+            filter: `id=eq.${game.id}`,
+          },
+          (payload) => {
+            const next = (payload.new as { status?: string }).status;
+            if (next) setStatus(next as typeof status);
+          },
+        )
+        .subscribe((subscriptionStatus) => {
+          // Catch-up: postgres_changes no re-emite lo perdido entre el fetch
+          // SSR y la suscripción, ni durante reconexiones del canal.
+          if (subscriptionStatus !== "SUBSCRIBED") return;
+          void activeClient
+            .from("game_events")
+            .select(columns)
+            .eq("game_id", game.id)
+            .order("seq")
+            .then(({ data }) => {
+              if (data) setEvents((data as ServerEventRow[]).map(mapRow));
+            });
+        });
+    })();
+
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      if (client && channel) void client.removeChannel(channel);
     };
   }, [realtime, status, game.id]);
 

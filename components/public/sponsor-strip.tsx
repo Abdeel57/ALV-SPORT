@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { PublicSponsor } from "@/lib/data/extras";
 
 /** Franja de patrocinadores; no renderiza nada si no hay activos. */
@@ -11,11 +12,12 @@ export function SponsorStrip({ sponsors }: { sponsors: PublicSponsor[] }) {
       <ul className="flex flex-wrap items-center gap-3">
         {sponsors.map((sponsor) => {
           const content = sponsor.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={sponsor.logoUrl}
               alt={sponsor.name}
-              className="h-10 max-w-32 object-contain"
+              width={128}
+              height={40}
+              className="h-10 w-auto max-w-32 object-contain"
             />
           ) : (
             <span className="text-sm text-muted-foreground">{sponsor.name}</span>
