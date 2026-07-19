@@ -283,10 +283,75 @@
   }
 }
 
-/* Pantalla de carga: el logo "respira" mientras llega el contenido. */
-@utility loader-breathe {
+/* ==========================================================================
+   Pantalla de carga (BrandLoader) — cuatro piezas:
+   appear (anti-flash), halo (respiración), sheen (destello sobre el logo)
+   y track/thumb (barra indeterminada).
+   ========================================================================== */
+
+/*
+ * El loader aparece tras 150 ms: una navegación rápida termina antes y nunca
+ * lo "flashea". Solo anima opacidad, seguro con prefers-reduced-motion.
+ */
+@utility loader-appear {
+  opacity: 0;
+  animation: alv-fade-in 300ms ease-out 150ms forwards;
+}
+
+/* Halo de marca respirando detrás del logo (rojo abajo-izq., ámbar arriba-der.). */
+@utility loader-halo {
+  background:
+    radial-gradient(45% 60% at 38% 62%, rgb(227 43 30 / 0.28), transparent 100%),
+    radial-gradient(45% 55% at 64% 40%, rgb(245 165 11 / 0.18), transparent 100%),
+    radial-gradient(closest-side, rgb(201 205 211 / 0.1), transparent 100%);
+  filter: blur(28px);
   @media (prefers-reduced-motion: no-preference) {
-    animation: alv-loader-breathe 2.4s ease-in-out infinite;
+    animation: alv-halo-breathe 3s ease-in-out infinite;
+  }
+}
+
+/*
+ * Destello broadcast: una banda de luz recorre SOLO la silueta del logo
+ * (el wordmark es la máscara). Sin animación la banda queda fuera de cuadro,
+ * y sin soporte de mask-image el elemento no pinta nada.
+ */
+@utility loader-sheen {
+  @supports (mask-image: linear-gradient(#000, #000)) or
+    (-webkit-mask-image: linear-gradient(#000, #000)) {
+    background-image: linear-gradient(
+      105deg,
+      transparent 40%,
+      rgb(255 255 255 / 0.85) 50%,
+      transparent 60%
+    );
+    background-size: 250% 100%;
+    background-repeat: no-repeat;
+    -webkit-mask-image: url("/brand/pantalla-carga.webp");
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-image: url("/brand/pantalla-carga.webp");
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    @media (prefers-reduced-motion: no-preference) {
+      animation: alv-loader-sheen 2.2s ease-in-out infinite;
+    }
+  }
+}
+
+/* Barra indeterminada: pista tenue + segmento de gradiente que la recorre. */
+@utility loader-track {
+  background-color: rgb(201 205 211 / 0.14);
+}
+@utility loader-thumb {
+  background-image: var(--gradient-brand);
+  @media (prefers-reduced-motion: no-preference) {
+    animation: alv-loader-run 1.2s cubic-bezier(0.6, 0.1, 0.4, 0.9) infinite;
+  }
+  /* Sin animaciones la barra queda llena y estática: sigue leyéndose "cargando". */
+  @media (prefers-reduced-motion: reduce) {
+    width: 100%;
   }
 }
 
@@ -312,9 +377,23 @@
   from { opacity: 0; transform: translateY(-0.35em); }
   to { opacity: 1; transform: none; }
 }
-@keyframes alv-loader-breathe {
-  0%, 100% { opacity: 0.85; transform: scale(0.98); }
-  50% { opacity: 1; transform: scale(1); }
+@keyframes alv-fade-in {
+  to { opacity: 1; }
+}
+@keyframes alv-halo-breathe {
+  0%, 100% { opacity: 0.65; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+/* background-size 250%: de 100% a 0% la banda barre el logo de izq. a der. */
+@keyframes alv-loader-sheen {
+  0%, 18% { background-position: 100% 0; }
+  62%, 100% { background-position: 0% 0; }
+}
+/* translateX relativo al propio segmento (40% de la pista): -110% → oculto
+   a la izquierda, 365% → ya salió por la derecha. */
+@keyframes alv-loader-run {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(365%); }
 }
 
 /* ==========================================================================
