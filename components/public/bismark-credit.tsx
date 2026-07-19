@@ -1,38 +1,11 @@
+import Image from "next/image";
+
 /**
  * Crédito de desarrollo: "Sitio desarrollado por Bismark". Bloque centrado al
- * pie del sitio público. El logo se dibuja en SVG (currentColor) para adaptarse
- * al tema y no depender de un asset externo.
+ * pie del sitio público. Usa el logo oficial de Bismark
+ * (public/brand/bismark-logo.png); se invierte a blanco con `invert` para
+ * contrastar sobre el footer oscuro sin depender de una segunda variante.
  */
-
-function BismarkMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 32 32"
-      fill="none"
-      className={className}
-      role="img"
-      aria-label="Bismark"
-    >
-      <rect
-        x="2.5"
-        y="2.5"
-        width="27"
-        height="27"
-        rx="8"
-        stroke="currentColor"
-        strokeWidth="2.4"
-      />
-      <path
-        d="M11.5 9.5 H18 a4.2 4.2 0 0 1 0 8.4 H11.5 V9.5 M11.5 17.9 V23"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function BismarkCredit() {
   return (
     <section
@@ -41,7 +14,13 @@ export function BismarkCredit() {
     >
       <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-4 py-10 text-center">
         <div className="flex items-center gap-2.5 text-foreground">
-          <BismarkMark className="size-7" />
+          <Image
+            src="/brand/bismark-logo.png"
+            alt="Bismark"
+            width={256}
+            height={256}
+            className="size-9 invert"
+          />
           <span className="text-xl font-bold tracking-[0.18em] uppercase">
             Bismark
           </span>
