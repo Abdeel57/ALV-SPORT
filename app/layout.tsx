@@ -84,7 +84,10 @@ export default function RootLayout({
   // El arte de la pantalla de carga (BrandLoader) debe estar en caché ANTES
   // de que un loading boundary lo pida; con prioridad baja no compite con el
   // contenido inicial.
-  preload("/brand/pantalla-carga.webp", { as: "image", fetchPriority: "low" });
+  preload("/brand/pantalla-carga-v2.webp", {
+    as: "image",
+    fetchPriority: "low",
+  });
   return (
     <html
       lang="es-MX"
