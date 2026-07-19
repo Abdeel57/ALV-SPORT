@@ -300,8 +300,8 @@
 
 /*
  * Destello broadcast: una banda de luz recorre SOLO la silueta del logo
- * (el wordmark es la máscara). Sin animación la banda queda fuera de cuadro,
- * y sin soporte de mask-image el elemento no pinta nada.
+ * (el propio arte es la máscara). Sin animación la banda queda fuera de
+ * cuadro, y sin soporte de mask-image el elemento no pinta nada.
  */
 @utility loader-sheen {
   @supports (mask-image: linear-gradient(#000, #000)) or

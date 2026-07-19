@@ -11,9 +11,10 @@
  *   - public/icons/apple-touch-icon.png
  *   - app/favicon.ico                    favicon multi-tamaño (16/32/48)
  *
- *   - public/brand/pantalla-carga.webp  wordmark compacto con alpha para la
- *                                        pantalla de carga (imagen + máscara
- *                                        del destello en BrandLoader)
+ *   - public/brand/pantalla-carga.webp  logo del render "ICONO DE PANTALLA
+ *                                        DE CARGA.png" extraído sin su glow
+ *                                        de fondo (imagen + máscara del
+ *                                        destello en BrandLoader)
  *
  * El fondo negro del PNG original se convierte en transparencia usando el
  * canal máximo (max(R,G,B)) como alpha: el negro puro desaparece y el texto
@@ -29,6 +30,7 @@ import sharp from "sharp";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const root = join(scriptDir, "..");
 const SRC = join(root, "logo oficial.png");
+const LOADER_SRC = join(root, "ICONO DE PANTALLA DE CARGA.png");
 const brandDir = join(root, "public", "brand");
 const iconsDir = join(root, "public", "icons");
 mkdirSync(brandDir, { recursive: true });
@@ -96,6 +98,96 @@ async function squareOnBrand(
     .toBuffer();
 }
 
+/**
+ * Pantalla de carga: extrae el logo del render (glow sobre gris de estudio)
+ * SIN su resplandor de fondo. El brillo no separa glow de letras (junto a
+ * ellas es igual de claro), así que se combinan dos máscaras estructurales:
+ *   1. Flood-fill desde los bordes que solo avanza entre vecinos con cambio
+ *      suave (|Δ max-canal| ≤ 8): recorre fondo y glow difuso completos, pero
+ *      no puede cruzar los contornos de las letras ni los filos del swoosh.
+ *   2. Croma (max−min): recupera el swoosh rojo/ámbar — sus degradados
+ *      internos sí los atraviesa el flood — mientras el glow, neutro, queda
+ *      fuera.
+ * Alpha = unión de ambas; los colores del render quedan intactos.
+ */
+async function buildLoaderArt(): Promise<{ width: number; height: number }> {
+  const { data, info } = await sharp(LOADER_SRC)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const W = info.width;
+  const H = info.height;
+  const N = W * H;
+
+  const maxCh = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    maxCh[i] = Math.max(
+      data[i * 3] ?? 0,
+      data[i * 3 + 1] ?? 0,
+      data[i * 3 + 2] ?? 0,
+    );
+  }
+
+  const DELTA = 8;
+  const visited = new Uint8Array(N);
+  const stack: number[] = [];
+  for (let x = 0; x < W; x++) stack.push(x, (H - 1) * W + x);
+  for (let y = 0; y < H; y++) stack.push(y * W, y * W + W - 1);
+  for (const i of stack) visited[i] = 1;
+  while (stack.length > 0) {
+    const i = stack.pop();
+    if (i === undefined) break;
+    const x = i % W;
+    const v = maxCh[i] ?? 0;
+    const neighbors: number[] = [];
+    if (x > 0) neighbors.push(i - 1);
+    if (x < W - 1) neighbors.push(i + 1);
+    if (i >= W) neighbors.push(i - W);
+    if (i < N - W) neighbors.push(i + W);
+    for (const j of neighbors) {
+      if (!visited[j] && Math.abs((maxCh[j] ?? 0) - v) <= DELTA) {
+        visited[j] = 1;
+        stack.push(j);
+      }
+    }
+  }
+
+  const rgba = Buffer.alloc(N * 4);
+  for (let i = 0; i < N; i++) {
+    const r = data[i * 3] ?? 0;
+    const g = data[i * 3 + 1] ?? 0;
+    const b = data[i * 3 + 2] ?? 0;
+    // Umbral alto: conserva el núcleo saturado del swoosh y descarta su
+    // bloom difuso, que a tamaño de UI se ve como mancha.
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+    const aChroma = Math.max(
+      0,
+      Math.min(255, Math.round(((chroma - 55) / 55) * 255)),
+    );
+    rgba[i * 4] = r;
+    rgba[i * 4 + 1] = g;
+    rgba[i * 4 + 2] = b;
+    rgba[i * 4 + 3] = visited[i] ? aChroma : 255;
+  }
+
+  const art = await sharp(rgba, {
+    raw: { width: W, height: H, channels: 4 },
+  })
+    .trim({ threshold: 10 })
+    .png()
+    .toBuffer();
+  const artMeta = await sharp(art).metadata();
+  const width = 640;
+  const height = Math.round(
+    ((artMeta.height ?? 1) * width) / (artMeta.width ?? 1),
+  );
+  await sharp(art)
+    .resize({ width })
+    .webp({ quality: 90 })
+    .toFile(join(brandDir, "pantalla-carga.webp"));
+  return { width, height };
+}
+
 /** Empaqueta varios PNG cuadrados en un contenedor .ico (PNG embebido). */
 function buildIco(images: { size: number; png: Buffer }[]): Buffer {
   const header = Buffer.alloc(6);
@@ -156,17 +248,11 @@ async function main(): Promise<void> {
   writeFileSync(join(root, "app", "favicon.ico"), ico);
   console.log("app/favicon.ico (16, 32, 48)");
 
-  // Pantalla de carga (BrandLoader): wordmark compacto en webp con alpha.
-  // El mismo archivo es la imagen del loader Y la máscara CSS del destello,
-  // así el navegador lo descarga una sola vez.
-  const loaderWidth = 640;
-  const loaderHeight = Math.round((height * loaderWidth) / width);
-  await sharp(wordmark)
-    .resize({ width: loaderWidth })
-    .webp({ quality: 90 })
-    .toFile(join(brandDir, "pantalla-carga.webp"));
+  // Pantalla de carga (BrandLoader): el mismo archivo es la imagen del
+  // loader Y la máscara CSS del destello, así se descarga una sola vez.
+  const loader = await buildLoaderArt();
   console.log(
-    `public/brand/pantalla-carga.webp (${loaderWidth}x${loaderHeight}, alpha)`,
+    `public/brand/pantalla-carga.webp (${loader.width}x${loader.height}, alpha)`,
   );
 }
 

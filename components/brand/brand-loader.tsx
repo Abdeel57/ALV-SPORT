@@ -2,14 +2,15 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 /**
- * Pantalla de carga de marca, estilo broadcast: el wordmark oficial sobre
- * fondo limpio, un destello que recorre las letras (el propio wordmark actúa
+ * Pantalla de carga de marca, estilo broadcast: el logo del render oficial
+ * ("ICONO DE PANTALLA DE CARGA.png", extraído sin su glow de fondo) sobre
+ * fondo limpio, un destello que recorre las letras (el propio arte actúa
  * como máscara, ver `loader-sheen` en globals.css) y una barra indeterminada
  * con el gradiente de marca.
  *
- * El arte (`/brand/pantalla-carga.webp`, wordmark compacto con alpha derivado
- * por `scripts/generate-brand-assets.ts`) se precarga desde el layout raíz,
- * así que pinta al instante. Aparece con un retraso de 150 ms para que las
+ * El arte (`/brand/pantalla-carga.webp`, derivado por
+ * `scripts/generate-brand-assets.ts`) se precarga desde el layout raíz, así
+ * que pinta al instante. Aparece con un retraso de 150 ms para que las
  * navegaciones rápidas no lo "flasheen".
  *
  * Se usa en todos los `loading.tsx`: raíz (viewport completo) y dentro de
@@ -18,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 // Dimensiones intrínsecas del webp (evita layout shift).
 const INTRINSIC_WIDTH = 640;
-const INTRINSIC_HEIGHT = 207;
+const INTRINSIC_HEIGHT = 288;
 
 export function BrandLoader({
   variant = "pantalla",
