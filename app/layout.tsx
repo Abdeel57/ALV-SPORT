@@ -33,6 +33,9 @@ export const metadata: Metadata = {
   },
   description,
   applicationName: "ALV SPORT",
+  // App pública (jugadores, coaches, aficionados). La sección /admin enlaza su
+  // propio manifest (ALV Panel) para instalarse como app separada.
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },

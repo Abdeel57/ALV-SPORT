@@ -11,6 +11,19 @@ import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export const metadata: Metadata = {
   title: { default: "Panel", template: "%s | ALV Admin" },
+  // La sección /admin es una PWA aparte de la pública: enlaza su propio
+  // manifest (app instalable independiente que abre directo en el panel) y su
+  // identidad iOS con ícono e etiqueta propios.
+  manifest: "/admin.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "ALV Panel",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [{ url: "/icons/admin-icon-192.png", type: "image/png", sizes: "192x192" }],
+    apple: "/icons/admin-apple-touch-icon.png",
+  },
 };
 
 export default function AdminLayout({

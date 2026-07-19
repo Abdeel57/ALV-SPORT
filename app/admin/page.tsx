@@ -9,6 +9,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
+import { InstallAppButton } from "@/components/admin/install-app";
 import { AdminTitle, EmptyRow, StatusChip } from "@/components/admin/ui";
 import { requireAdmin } from "@/lib/admin/auth";
 import { cn } from "@/lib/utils";
@@ -175,6 +176,9 @@ export default async function AdminDashboard() {
       >
         Dashboard
       </AdminTitle>
+
+      {/* Solo aparece si el panel aún no está instalado como app. */}
+      <InstallAppButton className="self-start lg:hidden" />
 
       <section
         aria-label="Pendientes"

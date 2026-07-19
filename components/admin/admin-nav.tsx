@@ -20,6 +20,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { InstallAppButton } from "@/components/admin/install-app";
 import { cn } from "@/lib/utils";
 
 /**
@@ -200,7 +201,8 @@ export function AdminSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-border p-3">
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        <InstallAppButton />
         <Link
           href="/"
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
