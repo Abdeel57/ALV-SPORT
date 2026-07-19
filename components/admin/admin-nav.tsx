@@ -93,7 +93,7 @@ function PanelChip() {
 
 export function AdminMobileTopBar() {
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md lg:hidden">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background/85 px-4 pb-3 pt-[calc(0.75rem_+_env(safe-area-inset-top))] backdrop-blur-md lg:hidden">
       <Link href="/admin" aria-label="ALV SPORT — Panel" className="shrink-0 leading-none">
         <BrandLogo className="h-6" />
       </Link>
@@ -107,7 +107,7 @@ export function AdminBottomNav() {
   return (
     <nav
       aria-label="Navegación del panel"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
     >
       <div className="bg-brand-gradient h-px w-full opacity-50" aria-hidden />
       <ul className="grid grid-cols-4">

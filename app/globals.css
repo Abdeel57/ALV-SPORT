@@ -289,3 +289,60 @@
   from { opacity: 0; transform: translateY(-0.35em); }
   to { opacity: 1; transform: none; }
 }
+
+/* ==========================================================================
+   Optimización móvil — comodidad táctil y formularios sin sobresaltos.
+   Estas reglas van SIN @layer a propósito: las capas sin nombre ganan sobre
+   las utilidades de Tailwind, así que anulan de forma fiable clases como
+   `text-sm` en los campos, sin recurrir a !important.
+   ========================================================================== */
+
+/*
+ * iOS Safari hace zoom automático al enfocar cualquier campo con font-size
+ * menor a 16px — eso "desmarca" el formulario y descoloca la pantalla. Forzamos
+ * 16px en los controles en pantallas pequeñas; a partir de 640px vuelve la
+ * escala del diseño (14px). Es EL arreglo del zoom al llenar formularios.
+ */
+@media (max-width: 639.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* El texto no se reescala solo al rotar el dispositivo. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Sin scroll horizontal accidental. `clip` no rompe position: sticky. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/* Sin destello gris al tocar: ya existen estados :active propios. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Elementos accionables: sin retardo de 300 ms ni zoom por doble toque
+   (el pellizco para acercar sigue disponible por accesibilidad). */
+a,
+button,
+label,
+summary,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"] {
+  touch-action: manipulation;
+}
+
+/* Scroll suave con inercia en contenedores desbordados (tablas en móvil). */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}

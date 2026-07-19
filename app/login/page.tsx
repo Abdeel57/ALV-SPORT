@@ -26,10 +26,11 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const supabase = getSupabaseBrowserClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { data: authData, error: authError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
       if (authError) {
         throw new Error(
           authError.message === "Invalid login credentials"
@@ -37,7 +38,18 @@ export default function LoginPage() {
             : authError.message,
         );
       }
-      router.push("/anotador");
+      // Enruta según rol: administradores al panel; el resto a la mesa de anotación.
+      let destination = "/anotador";
+      const userId = authData.user?.id;
+      if (userId) {
+        const { data: membership } = await supabase
+          .from("organization_members")
+          .select("role")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (membership) destination = "/admin";
+      }
+      router.push(destination);
       router.refresh();
     } catch (caught) {
       setError(
@@ -79,6 +91,10 @@ export default function LoginPage() {
                   type="email"
                   required
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="min-h-11 rounded-lg border bg-transparent px-3 outline-none focus-visible:border-ring"

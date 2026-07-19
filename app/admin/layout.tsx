@@ -51,8 +51,11 @@ export default function AdminLayout({
       <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminMobileTopBar />
-        {/* pb-24 deja aire para la barra inferior en móvil */}
-        <div className="flex-1 pb-24 lg:pb-10">{children}</div>
+        {/* Aire para la barra inferior en móvil, sumando el área segura del
+            dispositivo (barra de gestos / home indicator). */}
+        <div className="flex-1 pb-[calc(6rem_+_env(safe-area-inset-bottom))] lg:pb-10">
+          {children}
+        </div>
       </div>
       <AdminBottomNav />
     </div>

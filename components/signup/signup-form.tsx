@@ -6,8 +6,9 @@ import type { OpenSeason, SeasonTeam } from "@/lib/signup/data";
 
 type Kind = "coach" | "player";
 
+// text-base en móvil evita el zoom de iOS al enfocar; sm:text-sm en ≥640px.
 const inputClass =
-  "h-12 w-full rounded-lg border border-brand-silver/20 bg-surface/70 px-3.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-brand-amber/60";
+  "h-12 w-full rounded-lg border border-brand-silver/20 bg-surface/70 px-3.5 text-base sm:text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-brand-amber/60";
 
 function Field({
   label,
@@ -134,13 +135,25 @@ export function SignupForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={kind === "coach" ? "Tu nombre (coach)" : "Tu nombre"}>
-          <input name="fullName" required placeholder="Nombre y apellido" className={inputClass} />
+          <input
+            name="fullName"
+            required
+            autoComplete="name"
+            autoCapitalize="words"
+            placeholder="Nombre y apellido"
+            className={inputClass}
+          />
         </Field>
         <Field label="Correo">
           <input
             type="email"
             name="email"
             required
+            autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="email"
             placeholder="tu@correo.com"
             className={inputClass}
           />
@@ -148,7 +161,14 @@ export function SignupForm({
       </div>
 
       <Field label="WhatsApp / teléfono" hint="opcional, para contactarte más rápido">
-        <input name="phone" inputMode="tel" placeholder="55 1234 5678" className={inputClass} />
+        <input
+          name="phone"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="55 1234 5678"
+          className={inputClass}
+        />
       </Field>
 
       {kind === "coach" ? (
@@ -195,7 +215,13 @@ export function SignupForm({
             <input name="position" placeholder="Ej. Pitcher" className={inputClass} />
           </Field>
           <Field label="Número" hint="opcional">
-            <input name="jerseyNumber" maxLength={4} placeholder="00" className={inputClass} />
+            <input
+              name="jerseyNumber"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="00"
+              className={inputClass}
+            />
           </Field>
         </div>
       )}

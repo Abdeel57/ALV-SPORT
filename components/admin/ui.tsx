@@ -87,8 +87,10 @@ export function Field({
   );
 }
 
+// text-base en móvil evita el zoom de iOS al enfocar; sm:text-sm recupera la
+// escala del diseño en pantallas ≥640px.
 export const inputClass =
-  "min-h-12 w-full rounded-lg border bg-surface/40 px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "min-h-12 w-full rounded-lg border bg-surface/40 px-3 text-base sm:text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 
 export function SubmitButton({ children }: { children: React.ReactNode }) {
   return (

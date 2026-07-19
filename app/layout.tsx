@@ -58,6 +58,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#0A0A0B",
   colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  // Permite que el contenido llegue bajo la muesca/barra de gestos en modo PWA;
+  // el padding de áreas seguras (env(safe-area-inset-*)) lo compensa en headers y nav.
+  viewportFit: "cover",
+  // NO fijamos maximumScale/userScalable: el zoom por accesibilidad debe seguir
+  // disponible. El zoom molesto al enfocar campos se evita con font-size ≥16px.
 };
 
 export default function RootLayout({
