@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Kanit } from "next/font/google";
+import { preload } from "react-dom";
 import "./globals.css";
 
 const inter = Inter({
@@ -80,6 +81,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // El arte de la pantalla de carga (BrandLoader) debe estar en caché ANTES
+  // de que un loading boundary lo pida; con prioridad baja no compite con el
+  // contenido inicial.
+  preload("/brand/pantalla-carga.webp", { as: "image", fetchPriority: "low" });
   return (
     <html
       lang="es-MX"

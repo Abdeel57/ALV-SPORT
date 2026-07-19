@@ -283,6 +283,13 @@
   }
 }
 
+/* Pantalla de carga: el logo "respira" mientras llega el contenido. */
+@utility loader-breathe {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: alv-loader-breathe 2.4s ease-in-out infinite;
+  }
+}
+
 @keyframes alv-shimmer {
   from { background-position: 0% 0; }
   to { background-position: -220% 0; }
@@ -304,6 +311,10 @@
 @keyframes alv-score-pop {
   from { opacity: 0; transform: translateY(-0.35em); }
   to { opacity: 1; transform: none; }
+}
+@keyframes alv-loader-breathe {
+  0%, 100% { opacity: 0.85; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1); }
 }
 
 /* ==========================================================================

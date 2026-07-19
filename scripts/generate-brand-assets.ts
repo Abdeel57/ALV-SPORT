@@ -11,6 +11,10 @@
  *   - public/icons/apple-touch-icon.png
  *   - app/favicon.ico                    favicon multi-tamaño (16/32/48)
  *
+ * Además deriva la pantalla de carga (`public/brand/pantalla-carga.webp`) a
+ * partir de `ICONO DE PANTALLA DE CARGA.png` (render del logo con glow sobre
+ * gris de estudio): ver buildLoaderArt.
+ *
  * El fondo negro del PNG original se convierte en transparencia usando el
  * canal máximo (max(R,G,B)) como alpha: el negro puro desaparece y el texto
  * plateado + el swoosh rojo→ámbar→plata conservan su color a plena opacidad.
@@ -25,6 +29,7 @@ import sharp from "sharp";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const root = join(scriptDir, "..");
 const SRC = join(root, "logo oficial.png");
+const LOADER_SRC = join(root, "ICONO DE PANTALLA DE CARGA.png");
 const brandDir = join(root, "public", "brand");
 const iconsDir = join(root, "public", "icons");
 mkdirSync(brandDir, { recursive: true });
@@ -92,6 +97,74 @@ async function squareOnBrand(
     .toBuffer();
 }
 
+/**
+ * Pantalla de carga: el render trae el logo con su halo sobre un gris de
+ * estudio (~83–113). Tres pasos:
+ *   1. Curva de niveles (pivote 120 → negro): mata el fondo gris conservando
+ *      el logo y su glow (180+).
+ *   2. Viñeta radial multiplicativa: el centro queda intacto y las orillas
+ *      caen a negro, para que el halo no termine en un corte recto.
+ *   3. Alpha = canal máximo normalizado (c' = c/a): el negro desaparece y el
+ *      glow queda semitransparente, así el arte se funde con cualquier
+ *      superficie oscura de la app sin mostrar un rectángulo.
+ */
+async function buildLoaderArt(): Promise<{ width: number; height: number }> {
+  const PIVOT = 120;
+  const gain = 255 / (255 - PIVOT);
+  const curved = await sharp(LOADER_SRC)
+    .removeAlpha()
+    .linear(gain, -gain * PIVOT)
+    .png()
+    .toBuffer();
+  const trimmed = await sharp(curved)
+    .trim({ threshold: 18 })
+    .toBuffer({ resolveWithObject: true });
+
+  const width = 800;
+  const height = Math.round(
+    (trimmed.info.height * width) / trimmed.info.width,
+  );
+  // La punta del swoosh llega al ~70% del semiancho: la viñeta es sólida
+  // hasta 72% y muere en la orilla (100%).
+  const vignette = Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+       <radialGradient id="g" cx="50%" cy="50%" r="50%">
+         <stop offset="72%" stop-color="#fff"/>
+         <stop offset="100%" stop-color="#000"/>
+       </radialGradient>
+       <rect width="100%" height="100%" fill="url(#g)"/>
+     </svg>`,
+  );
+  const { data, info } = await sharp(trimmed.data)
+    .resize({ width })
+    .composite([{ input: vignette, blend: "multiply" }])
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const pixels = info.width * info.height;
+  const rgba = Buffer.alloc(pixels * 4);
+  for (let i = 0; i < pixels; i++) {
+    const r = data[i * 3] ?? 0;
+    const g = data[i * 3 + 1] ?? 0;
+    const b = data[i * 3 + 2] ?? 0;
+    let a = Math.max(r, g, b);
+    if (a < 8) a = 0;
+    // Normaliza (c' = c·255/a) para que sobre negro se vea idéntico al render.
+    const scale = a > 0 ? 255 / a : 0;
+    rgba[i * 4] = Math.min(255, Math.round(r * scale));
+    rgba[i * 4 + 1] = Math.min(255, Math.round(g * scale));
+    rgba[i * 4 + 2] = Math.min(255, Math.round(b * scale));
+    rgba[i * 4 + 3] = a;
+  }
+  await sharp(rgba, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .webp({ quality: 82 })
+    .toFile(join(brandDir, "pantalla-carga.webp"));
+  return { width: info.width, height: info.height };
+}
+
 /** Empaqueta varios PNG cuadrados en un contenedor .ico (PNG embebido). */
 function buildIco(images: { size: number; png: Buffer }[]): Buffer {
   const header = Buffer.alloc(6);
@@ -151,6 +224,12 @@ async function main(): Promise<void> {
   ]);
   writeFileSync(join(root, "app", "favicon.ico"), ico);
   console.log("app/favicon.ico (16, 32, 48)");
+
+  // Pantalla de carga (BrandLoader).
+  const loader = await buildLoaderArt();
+  console.log(
+    `public/brand/pantalla-carga.webp (${loader.width}x${loader.height}, alpha)`,
+  );
 }
 
 main().catch((error: unknown) => {
