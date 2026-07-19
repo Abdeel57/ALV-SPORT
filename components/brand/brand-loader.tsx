@@ -2,10 +2,10 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 /**
- * Pantalla de carga de marca, estilo broadcast: el wordmark oficial sobre un
- * halo rojo/ámbar que respira, un destello que recorre las letras (el propio
- * wordmark actúa como máscara, ver `loader-sheen` en globals.css) y una barra
- * indeterminada con el gradiente de marca.
+ * Pantalla de carga de marca, estilo broadcast: el wordmark oficial sobre
+ * fondo limpio, un destello que recorre las letras (el propio wordmark actúa
+ * como máscara, ver `loader-sheen` en globals.css) y una barra indeterminada
+ * con el gradiente de marca.
  *
  * El arte (`/brand/pantalla-carga.webp`, wordmark compacto con alpha derivado
  * por `scripts/generate-brand-assets.ts`) se precarga desde el layout raíz,
@@ -46,10 +46,6 @@ export function BrandLoader({
       )}
     >
       <div className="relative">
-        <div
-          aria-hidden
-          className="loader-halo absolute -inset-x-14 -inset-y-16 sm:-inset-x-20 sm:-inset-y-24"
-        />
         <Image
           src="/brand/pantalla-carga.webp"
           alt=""

@@ -284,9 +284,9 @@
 }
 
 /* ==========================================================================
-   Pantalla de carga (BrandLoader) — cuatro piezas:
-   appear (anti-flash), halo (respiración), sheen (destello sobre el logo)
-   y track/thumb (barra indeterminada).
+   Pantalla de carga (BrandLoader) — tres piezas:
+   appear (anti-flash), sheen (destello sobre el logo) y track/thumb
+   (barra indeterminada).
    ========================================================================== */
 
 /*
@@ -296,18 +296,6 @@
 @utility loader-appear {
   opacity: 0;
   animation: alv-fade-in 300ms ease-out 150ms forwards;
-}
-
-/* Halo de marca respirando detrás del logo (rojo abajo-izq., ámbar arriba-der.). */
-@utility loader-halo {
-  background:
-    radial-gradient(45% 60% at 38% 62%, rgb(227 43 30 / 0.28), transparent 100%),
-    radial-gradient(45% 55% at 64% 40%, rgb(245 165 11 / 0.18), transparent 100%),
-    radial-gradient(closest-side, rgb(201 205 211 / 0.1), transparent 100%);
-  filter: blur(28px);
-  @media (prefers-reduced-motion: no-preference) {
-    animation: alv-halo-breathe 3s ease-in-out infinite;
-  }
 }
 
 /*
@@ -379,10 +367,6 @@
 }
 @keyframes alv-fade-in {
   to { opacity: 1; }
-}
-@keyframes alv-halo-breathe {
-  0%, 100% { opacity: 0.65; transform: scale(0.95); }
-  50% { opacity: 1; transform: scale(1.05); }
 }
 /* background-size 250%: de 100% a 0% la banda barre el logo de izq. a der. */
 @keyframes alv-loader-sheen {
