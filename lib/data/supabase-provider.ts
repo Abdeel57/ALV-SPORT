@@ -53,6 +53,7 @@ interface TeamRowRef {
   name: string;
   slug: string;
   color: string | null;
+  logo_url: string | null;
 }
 
 interface EventRow {
@@ -69,12 +70,19 @@ interface EventRow {
 }
 
 const GAME_SELECT =
-  "id, status, scheduled_at, season_id, home_score, away_score, home:teams!games_home_team_id_fkey(id,name,slug,color), away:teams!games_away_team_id_fkey(id,name,slug,color)";
+  "id, status, scheduled_at, season_id, home_score, away_score, home:teams!games_home_team_id_fkey(id,name,slug,color,logo_url), away:teams!games_away_team_id_fkey(id,name,slug,color,logo_url)";
 const EVENT_SELECT =
   "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id";
 
 function toTeamRef(row: TeamRowRef | null): TeamRef {
-  return row ?? { id: "", name: "—", slug: "", color: null };
+  if (!row) return { id: "", name: "—", slug: "", color: null, logoUrl: null };
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    color: row.color,
+    logoUrl: row.logo_url,
+  };
 }
 
 function mapEvent(row: EventRow): EngineGameEvent {

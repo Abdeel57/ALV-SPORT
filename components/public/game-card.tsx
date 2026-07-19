@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TeamBadge } from "@/components/public/team-badge";
 import type { GameSummary } from "@/lib/data/types";
 
 const dateFormat = new Intl.DateTimeFormat("es-MX", {
@@ -16,12 +17,14 @@ const timeFormat = new Intl.DateTimeFormat("es-MX", {
 function TeamLine({
   name,
   color,
+  logoUrl,
   score,
   winner,
   decided,
 }: {
   name: string;
   color: string | null;
+  logoUrl?: string | null;
   score: number | null;
   winner: boolean;
   decided: boolean;
@@ -29,10 +32,11 @@ function TeamLine({
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="flex min-w-0 items-center gap-2.5">
-        <span
-          className="h-4 w-1 shrink-0 rounded-full"
-          style={{ backgroundColor: color ?? "#666" }}
-          aria-hidden
+        <TeamBadge
+          name={name}
+          color={color}
+          logoUrl={logoUrl}
+          className="size-7 text-[11px]"
         />
         <span
           className={`truncate text-sm ${
@@ -98,6 +102,7 @@ export function GameCard({ game }: { game: GameSummary }) {
       <TeamLine
         name={game.away.name}
         color={game.away.color}
+        logoUrl={game.away.logoUrl}
         score={game.awayScore}
         winner={awayWins}
         decided={decided}
@@ -105,6 +110,7 @@ export function GameCard({ game }: { game: GameSummary }) {
       <TeamLine
         name={game.home.name}
         color={game.home.color}
+        logoUrl={game.home.logoUrl}
         score={game.homeScore}
         winner={homeWins}
         decided={decided}

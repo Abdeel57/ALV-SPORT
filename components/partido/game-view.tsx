@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { TeamBadge } from "@/components/public/team-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -64,14 +65,15 @@ function TeamBlock({
   name,
   slug,
   color,
+  logoUrl,
   align,
 }: {
   name: string;
   slug: string;
   color: string | null;
+  logoUrl?: string | null;
   align: "left" | "right";
 }) {
-  const tint = color ?? "#666";
   return (
     <Link
       href={`/equipo/${slug}`}
@@ -79,17 +81,13 @@ function TeamBlock({
         align === "right" ? "flex-row-reverse text-right" : ""
       }`}
     >
-      <span
-        aria-hidden
-        className="flex size-12 shrink-0 items-center justify-center rounded-full border font-display text-xl transition-transform duration-200 motion-safe:group-hover:scale-105 sm:size-14 sm:text-2xl"
-        style={{
-          backgroundColor: `${tint}26`,
-          borderColor: `${tint}66`,
-          boxShadow: `0 0 26px ${tint}33`,
-        }}
-      >
-        {name.slice(0, 1)}
-      </span>
+      <TeamBadge
+        name={name}
+        color={color}
+        logoUrl={logoUrl}
+        glow
+        className="size-12 text-xl transition-transform duration-200 motion-safe:group-hover:scale-105 sm:size-14 sm:text-2xl"
+      />
       <span className="truncate font-display text-lg leading-tight sm:text-2xl">
         {name}
       </span>
@@ -315,6 +313,7 @@ export function GameView({
               name={game.away.name}
               slug={game.away.slug}
               color={game.away.color}
+              logoUrl={game.away.logoUrl}
               align="left"
             />
             <div
@@ -333,6 +332,7 @@ export function GameView({
               name={game.home.name}
               slug={game.home.slug}
               color={game.home.color}
+              logoUrl={game.home.logoUrl}
               align="right"
             />
           </div>

@@ -17,6 +17,8 @@ export interface TeamRef {
   name: string;
   slug: string;
   color: string | null;
+  // Escudo del equipo (Storage). Opcional: quien no lo trae cae al monograma.
+  logoUrl?: string | null;
 }
 
 export interface LeagueInfo {

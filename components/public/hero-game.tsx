@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TeamBadge } from "@/components/public/team-badge";
 import type { GameSummary } from "@/lib/data/types";
 
 const dateFormat = new Intl.DateTimeFormat("es-MX", {
@@ -9,23 +10,6 @@ const dateFormat = new Intl.DateTimeFormat("es-MX", {
   minute: "2-digit",
   timeZone: "America/Mexico_City",
 });
-
-function Monogram({ name, color }: { name: string; color: string | null }) {
-  const tint = color ?? "#666";
-  return (
-    <span
-      aria-hidden
-      className="font-display flex size-12 shrink-0 items-center justify-center rounded-full border text-xl sm:size-16 sm:text-3xl"
-      style={{
-        backgroundColor: `${tint}24`,
-        borderColor: `${tint}66`,
-        boxShadow: `0 0 28px ${tint}33`,
-      }}
-    >
-      {name.slice(0, 1)}
-    </span>
-  );
-}
 
 /**
  * Marquesina de portada: el partido más relevante (en vivo → próximo →
@@ -103,7 +87,13 @@ export function HeroGame({
 
         <div className="flex items-center justify-between gap-2 sm:gap-6">
           <span className="flex min-w-0 flex-1 items-center gap-3">
-            <Monogram name={away.name} color={away.color} />
+            <TeamBadge
+              name={away.name}
+              color={away.color}
+              logoUrl={away.logoUrl}
+              glow
+              className="size-12 text-xl sm:size-16 sm:text-3xl"
+            />
             <span className="font-display truncate text-xl leading-tight sm:text-3xl">
               {away.name}
             </span>
@@ -125,7 +115,13 @@ export function HeroGame({
           )}
 
           <span className="flex min-w-0 flex-1 flex-row-reverse items-center gap-3 text-right">
-            <Monogram name={home.name} color={home.color} />
+            <TeamBadge
+              name={home.name}
+              color={home.color}
+              logoUrl={home.logoUrl}
+              glow
+              className="size-12 text-xl sm:size-16 sm:text-3xl"
+            />
             <span className="font-display truncate text-xl leading-tight sm:text-3xl">
               {home.name}
             </span>
