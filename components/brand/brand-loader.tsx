@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils";
  *
  * El arte (`/brand/pantalla-carga.webp`, derivado por
  * `scripts/generate-brand-assets.ts`) se precarga desde el layout raíz, así
- * que pinta al instante. Aparece con un retraso de 150 ms para que las
- * navegaciones rápidas no lo "flasheen".
+ * que pinta al instante. Sin animación de entrada a propósito: el estado
+ * base es 100% visible aunque el navegador congele animaciones durante el
+ * streaming.
  *
  * Se usa en todos los `loading.tsx`: raíz (viewport completo) y dentro de
  * los shells público y de admin (variante `seccion`, el nav queda fijo).
@@ -40,7 +41,7 @@ export function BrandLoader({
       role="status"
       aria-live="polite"
       className={cn(
-        "loader-appear flex flex-col items-center justify-center overflow-hidden",
+        "flex flex-col items-center justify-center overflow-hidden",
         seccion ? "min-h-[60dvh]" : "min-h-dvh",
         className,
       )}
