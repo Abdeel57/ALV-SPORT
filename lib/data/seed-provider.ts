@@ -51,6 +51,9 @@ const leagueInfos: LeagueInfo[] = seedLeagues.map((league) => {
     sportKey: sport?.key ?? "",
     sportName: sport?.name ?? "",
     seasonName: season?.name ?? "",
+    // El seed de demo no trae identidad propia: cae al monograma/acento ALV.
+    logoUrl: null,
+    color: null,
   };
 });
 

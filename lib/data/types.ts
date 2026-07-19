@@ -25,6 +25,9 @@ export interface LeagueInfo {
   sportKey: string;
   sportName: string;
   seasonName: string;
+  // Identidad propia de la liga: tiñe sus chips/acentos sobre la base ALV.
+  logoUrl: string | null;
+  color: string | null;
 }
 
 export interface GameSummary {

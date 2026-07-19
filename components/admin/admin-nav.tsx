@@ -9,6 +9,7 @@ import {
   type LucideIcon,
   LayoutDashboard,
   MapPin,
+  Medal,
   Megaphone,
   MoreHorizontal,
   Newspaper,
@@ -52,6 +53,7 @@ const groups: readonly { label: string; items: readonly NavItem[] }[] = [
   {
     label: "Competencia",
     items: [
+      { href: "/admin/ligas", label: "Ligas", icon: Medal },
       { href: "/admin/equipos", label: "Equipos", icon: Users },
       { href: "/admin/jugadores", label: "Jugadores", icon: UserRound },
       { href: "/admin/temporadas", label: "Temporadas y divisiones", icon: Trophy },

@@ -12,6 +12,7 @@ import {
   divisionSchema,
   formDataToObject,
   gameUpdateSchema,
+  leagueSchema,
   newsSchema,
   playerSchema,
   registrationCreateSchema,
@@ -25,7 +26,7 @@ import {
 } from "./schemas";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
-import { splitFullName } from "@/lib/utils";
+import { slugify, splitFullName } from "@/lib/utils";
 
 async function ctx(): Promise<AdminContext> {
   const context = await requireAdmin();
@@ -104,6 +105,101 @@ async function deleteRow(
   const { error } = await context.supabase.from(table).delete().eq("id", id);
   if (error) fail(path, error.message);
   done(path);
+}
+
+/* -------------------------------- Ligas ------------------------------- */
+
+const LEAGUES = "/admin/ligas";
+
+export async function saveLeague(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(leagueSchema, formData, LEAGUES);
+  const logoUrl = await uploadImage(context, "league-logos", formData, "logo", LEAGUES);
+
+  if (data.id) {
+    // Edición: identidad únicamente. El deporte y el slug no cambian una vez
+    // creada la liga (cambiar el deporte rompería eventos/standings; el slug
+    // es la URL pública).
+    const row: Record<string, unknown> = { name: data.name, color: data.color };
+    if (logoUrl) row.logo_url = logoUrl;
+    await upsertRow(context, "leagues", data.id, row, LEAGUES);
+    done(LEAGUES);
+  }
+
+  // Alta con asistente: liga → primera temporada → divisiones. La liga nace
+  // OCULTA (is_published default false): se arma completa en privado y se
+  // publica con el switch cuando está lista.
+  const { data: inserted, error } = await context.supabase
+    .from("leagues")
+    .insert({
+      organization_id: context.organizationId,
+      sport_id: data.sportId,
+      name: data.name,
+      slug: slugify(data.name),
+      color: data.color,
+      logo_url: logoUrl,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted) {
+    fail(
+      LEAGUES,
+      error?.code === "23505"
+        ? "Ya existe una liga con un nombre muy similar; cambia el nombre"
+        : (error?.message ?? "No se pudo crear la liga"),
+    );
+  }
+
+  if (data.seasonName) {
+    const { data: season, error: seasonError } = await context.supabase
+      .from("seasons")
+      .insert({
+        league_id: (inserted as { id: string }).id,
+        name: data.seasonName,
+        status: "draft",
+        starts_on: data.startsOn ?? null,
+        ends_on: data.endsOn ?? null,
+      })
+      .select("id")
+      .single();
+    if (seasonError || !season) {
+      fail(LEAGUES, `La liga se creó, pero la temporada falló: ${seasonError?.message ?? "error"}`);
+    }
+    const divisionNames = (data.divisions ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (divisionNames.length > 0) {
+      const { error: divisionError } = await context.supabase.from("divisions").insert(
+        divisionNames.map((name, index) => ({
+          season_id: (season as { id: string }).id,
+          name,
+          sort_order: index,
+        })),
+      );
+      if (divisionError) {
+        fail(LEAGUES, `Liga y temporada creadas, pero las divisiones fallaron: ${divisionError.message}`);
+      }
+    }
+  }
+  done(LEAGUES);
+}
+
+export async function setLeaguePublished(id: string, publish: boolean): Promise<void> {
+  const context = await ctx();
+  const { error } = await context.supabase
+    .from("leagues")
+    .update({ is_published: publish })
+    .eq("id", id);
+  if (error) fail(LEAGUES, error.message);
+  // La compuerta de visibilidad afecta al sitio público de inmediato.
+  revalidatePath("/");
+  revalidatePath("/tabla");
+  done(LEAGUES);
+}
+
+export async function deleteLeague(id: string): Promise<void> {
+  await deleteRow(await ctx(), "leagues", id, LEAGUES);
 }
 
 /* ---------------------- Temporadas y divisiones ---------------------- */

@@ -31,6 +31,8 @@ interface LeagueRow {
   id: string;
   slug: string;
   name: string;
+  logo_url: string | null;
+  color: string | null;
   sports: { key: string; name: string; config: unknown } | null;
   seasons: { id: string; name: string; status: string }[];
 }
@@ -96,7 +98,7 @@ async function fetchLeagues(): Promise<
   const supabase = await getSupabaseServerClient();
   const { data } = await supabase
     .from("leagues")
-    .select("id, slug, name, sports(key, name, config), seasons(id, name, status)")
+    .select("id, slug, name, logo_url, color, sports(key, name, config), seasons(id, name, status)")
     .eq("is_published", true)
     .order("name");
   const rows = (data ?? []) as unknown as LeagueRow[];
@@ -114,6 +116,8 @@ async function fetchLeagues(): Promise<
         sportKey: row.sports.key,
         sportName: row.sports.name,
         seasonName: season.name,
+        logoUrl: row.logo_url,
+        color: row.color,
         seasonId: season.id,
         config: parsed.data,
       },
@@ -128,6 +132,8 @@ function toLeagueInfo(league: LeagueInfo): LeagueInfo {
     sportKey: league.sportKey,
     sportName: league.sportName,
     seasonName: league.seasonName,
+    logoUrl: league.logoUrl,
+    color: league.color,
   };
 }
 

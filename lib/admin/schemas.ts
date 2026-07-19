@@ -69,6 +69,20 @@ export const teamSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "El color debe ser hexadecimal (#RRGGBB)"),
 });
 
+export const leagueSchema = z.object({
+  id: z.uuid().optional(),
+  name: requiredText("El nombre", 80),
+  sportId: uuid("el deporte"),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "El color debe ser hexadecimal (#RRGGBB)"),
+  // Asistente de alta (solo aplican al crear): primera temporada y divisiones.
+  seasonName: optionalText(80),
+  startsOn: dateStr("Inicio").nullable().optional().or(z.literal("").transform(() => null)),
+  endsOn: dateStr("Fin").nullable().optional().or(z.literal("").transform(() => null)),
+  divisions: optionalText(300),
+});
+
 export const playerSchema = z.object({
   id: z.uuid().optional(),
   firstName: requiredText("El nombre", 60),
