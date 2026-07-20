@@ -57,7 +57,7 @@ const groups: readonly { label: string; items: readonly NavItem[] }[] = [
       { href: "/admin/equipos", label: "Equipos", icon: Users },
       { href: "/admin/jugadores", label: "Jugadores", icon: UserRound },
       { href: "/admin/temporadas", label: "Temporadas y divisiones", icon: Trophy },
-      { href: "/admin/sedes", label: "Sedes y canchas", icon: MapPin },
+      { href: "/admin/sedes", label: "Sedes y campos", icon: MapPin },
     ],
   },
   {

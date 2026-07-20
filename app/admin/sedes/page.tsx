@@ -38,7 +38,7 @@ export default async function SedesPage({ searchParams }: PageProps) {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Sedes y canchas</AdminTitle>
+      <AdminTitle>Sedes y campos</AdminTitle>
       <Feedback ok={ok} error={error} />
 
       <section className="rounded-2xl border p-4">
@@ -68,7 +68,7 @@ export default async function SedesPage({ searchParams }: PageProps) {
               )}
               <span className="ml-auto">
                 <form action={deleteVenue.bind(null, venue.id)}>
-                  <ConfirmButton message={`¿Eliminar la sede "${venue.name}" y sus canchas?`}>
+                  <ConfirmButton message={`¿Eliminar la sede "${venue.name}" y sus campos?`}>
                     Eliminar
                   </ConfirmButton>
                 </form>
@@ -84,7 +84,7 @@ export default async function SedesPage({ searchParams }: PageProps) {
                   <form action={deleteCourt.bind(null, court.id)}>
                     <button
                       type="submit"
-                      aria-label={`Eliminar cancha ${court.name}`}
+                      aria-label={`Eliminar campo ${court.name}`}
                       className="text-muted-foreground hover:text-destructive"
                     >
                       ×
@@ -98,7 +98,7 @@ export default async function SedesPage({ searchParams }: PageProps) {
               <input
                 name="name"
                 required
-                placeholder="Nueva cancha o campo"
+                placeholder="Nuevo campo (ej. Campo 1)"
                 className={`${inputClass} max-w-72`}
               />
               <SubmitButton>Agregar</SubmitButton>

@@ -116,7 +116,7 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {dateTimeFormat.format(new Date(game.scheduled_at))} ·{" "}
-                  {game.courts?.name ?? "Sin cancha"} ·{" "}
+                  {game.courts?.name ?? "Sin campo"} ·{" "}
                   {scorekeepers.length > 0 ? (
                     <span className="text-brand-silver">Anotador asignado</span>
                   ) : (
@@ -136,7 +136,7 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Cancha">
+                    <Field label="Campo">
                       <select name="courtId" required defaultValue={game.court_id ?? ""} className={inputClass}>
                         <option value="" disabled>
                           Selecciona
@@ -178,7 +178,7 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
 
                 <div className="flex flex-col gap-2 rounded-xl bg-secondary/50 p-3">
                   <p className="text-xs tracking-widest text-muted-foreground uppercase">
-                    Mesa y arbitraje
+                    Mesa y umpires
                   </p>
                   {game.game_assignments.length > 0 && (
                     <ul className="flex flex-wrap gap-2">
@@ -187,7 +187,7 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                           key={assignment.id}
                           className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs"
                         >
-                          {assignment.role === "scorekeeper" ? "Anotador" : "Árbitro"}
+                          {assignment.role === "scorekeeper" ? "Anotador" : "Umpire"}
                           <form action={removeAssignment.bind(null, assignment.id)}>
                             <button
                               type="submit"
@@ -212,7 +212,7 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                     />
                     <select name="role" defaultValue="scorekeeper" className={`${inputClass} min-h-11 w-auto`}>
                       <option value="scorekeeper">Anotador</option>
-                      <option value="referee">Árbitro</option>
+                      <option value="referee">Umpire</option>
                     </select>
                     <GhostButton>Asignar</GhostButton>
                   </form>

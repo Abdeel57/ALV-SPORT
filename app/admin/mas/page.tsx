@@ -9,7 +9,7 @@ const sections = [
   { href: "/admin/solicitudes", label: "Solicitudes de registro", detail: "Coaches y jugadores que se auto-inscribieron" },
   { href: "/admin/jugadores", label: "Jugadores", detail: "Altas, fotos y rosters" },
   { href: "/admin/temporadas", label: "Temporadas y divisiones", detail: "Estructura de la competencia" },
-  { href: "/admin/sedes", label: "Sedes y canchas", detail: "Dónde se juega" },
+  { href: "/admin/sedes", label: "Sedes y campos", detail: "Dónde se juega" },
   { href: "/admin/inscripciones", label: "Inscripciones y pagos", detail: "Mercado Pago y efectivo" },
   { href: "/admin/sanciones", label: "Sanciones", detail: "Suspensiones por jugador" },
   { href: "/admin/noticias", label: "Noticias", detail: "Editor y publicación" },

@@ -163,7 +163,7 @@ export default async function GenerarPage({
             className={inputClass}
           />
         </Field>
-        <Field label="Canchas disponibles">
+        <Field label="Campos disponibles">
           <div className="flex flex-wrap gap-2">
             {courts.map((court) => (
               <label
@@ -217,7 +217,7 @@ export default async function GenerarPage({
                   <th className="px-3 py-2 font-medium">J</th>
                   <th className="px-3 py-2 font-medium">Partido</th>
                   <th className="px-3 py-2 font-medium">Fecha</th>
-                  <th className="px-3 py-2 font-medium">Cancha</th>
+                  <th className="px-3 py-2 font-medium">Campo</th>
                 </tr>
               </thead>
               <tbody>
@@ -261,7 +261,7 @@ export default async function GenerarPage({
               Publicar {preview.fixtures.length} partidos al sitio público
             </SubmitButton>
             <p className="text-xs text-muted-foreground">
-              Después de publicar puedes ajustar fecha, hora o cancha de
+              Después de publicar puedes ajustar fecha, hora o campo de
               cualquier partido desde el calendario.
             </p>
           </form>
