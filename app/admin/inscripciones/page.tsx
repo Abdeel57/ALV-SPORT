@@ -18,6 +18,7 @@ import {
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 import { hasMercadoPago } from "@/lib/admin/mercadopago";
+import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Inscripciones" };
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ interface RegistrationRow {
   payment_ref: string | null;
   note: string | null;
   teams: { name: string } | null;
-  seasons: { name: string } | null;
+  seasons: { name: string; leagues: { name: string } | null } | null;
 }
 
 interface PageProps {
@@ -48,13 +49,22 @@ export default async function InscripcionesPage({ searchParams }: PageProps) {
     await Promise.all([
       context.supabase
         .from("registrations")
-        .select("id, status, amount, payment_method, payment_ref, note, teams(name), seasons(name)")
+        .select(
+          "id, status, amount, payment_method, payment_ref, note, teams(name), seasons(name, leagues(name))",
+        )
         .order("created_at", { ascending: false }),
-      context.supabase.from("seasons").select("id, name").order("created_at", { ascending: false }),
+      context.supabase
+        .from("seasons")
+        .select("id, name, leagues(name)")
+        .order("created_at", { ascending: false }),
       context.supabase.from("teams").select("id, name").order("name"),
     ]);
   const registrations = (regRows ?? []) as unknown as RegistrationRow[];
-  const seasons = (seasonRows ?? []) as { id: string; name: string }[];
+  const seasons = (seasonRows ?? []) as unknown as {
+    id: string;
+    name: string;
+    leagues: { name: string } | null;
+  }[];
   const teams = (teamRows ?? []) as { id: string; name: string }[];
   const mpReady = hasMercadoPago();
 
@@ -77,7 +87,7 @@ export default async function InscripcionesPage({ searchParams }: PageProps) {
               </option>
               {seasons.map((season) => (
                 <option key={season.id} value={season.id}>
-                  {season.name}
+                  {seasonLabel(season)}
                 </option>
               ))}
             </select>
@@ -112,7 +122,10 @@ export default async function InscripcionesPage({ searchParams }: PageProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {registration.teams?.name ?? "—"}
-                  <span className="text-muted-foreground"> · {registration.seasons?.name ?? ""}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {seasonLabel(registration.seasons)}
+                  </span>
                 </span>
                 {registration.amount !== null && (
                   <span className="font-display text-lg tabular-nums">

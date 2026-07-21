@@ -26,7 +26,7 @@ import {
 } from "./schemas";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
-import { slugify, splitFullName } from "@/lib/utils";
+import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
 
 async function ctx(): Promise<AdminContext> {
   const context = await requireAdmin();
@@ -527,14 +527,14 @@ export async function createMpCheckout(id: string): Promise<void> {
   const context = await ctx();
   const { data } = await context.supabase
     .from("registrations")
-    .select("id, amount, teams(name), seasons(name)")
+    .select("id, amount, teams(name), seasons(name, leagues(name))")
     .eq("id", id)
     .single();
   const registration = data as unknown as {
     id: string;
     amount: number | null;
     teams: { name: string } | null;
-    seasons: { name: string } | null;
+    seasons: { name: string; leagues: { name: string } | null } | null;
   } | null;
   if (!registration?.amount) {
     fail(REGISTRATIONS, "La inscripción necesita un monto para generar el pago");
@@ -542,7 +542,7 @@ export async function createMpCheckout(id: string): Promise<void> {
   try {
     const link = await createMpPreference({
       registrationId: registration.id,
-      title: `Inscripción ${registration.teams?.name ?? ""} · ${registration.seasons?.name ?? ""}`,
+      title: `Inscripción ${registration.teams?.name ?? ""} · ${seasonLabel(registration.seasons)}`,
       amount: Number(registration.amount),
     });
     redirect(`${REGISTRATIONS}?mp_link=${encodeURIComponent(link)}`);

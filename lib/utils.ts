@@ -5,6 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Etiqueta de temporada con su liga (modalidad): "Slowpitch Mixto · Temporada
+ * 2026". Sin la liga, temporadas y divisiones homónimas de distintas
+ * modalidades son indistinguibles en los selectores del panel.
+ */
+export function seasonLabel(
+  season: { name: string; leagues: { name: string } | null } | null | undefined,
+): string {
+  return [season?.leagues?.name, season?.name].filter(Boolean).join(" · ")
+}
+
 /** Convierte un texto a slug URL-safe: minúsculas, sin acentos, con guiones. */
 export function slugify(input: string): string {
   return input

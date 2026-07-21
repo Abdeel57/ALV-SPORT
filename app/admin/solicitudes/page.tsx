@@ -19,7 +19,7 @@ import {
   rejectSignup,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
-import { slugify } from "@/lib/utils";
+import { seasonLabel, slugify } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Solicitudes" };
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ interface SignupRow {
   created_at: string;
   resolved_team_id: string | null;
   resolved_player_id: string | null;
-  seasons: { name: string } | null;
+  seasons: { name: string; leagues: { name: string } | null } | null;
 }
 
 const dateFormat = new Intl.DateTimeFormat("es-MX", {
@@ -64,7 +64,7 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
   let query = context.supabase
     .from("signup_requests")
     .select(
-      "id, kind, status, season_id, full_name, email, phone, team_name, team_color, preferred_team_id, position, jersey_number, message, created_at, resolved_team_id, resolved_player_id, seasons(name)",
+      "id, kind, status, season_id, full_name, email, phone, team_name, team_color, preferred_team_id, position, jersey_number, message, created_at, resolved_team_id, resolved_player_id, seasons(name, leagues(name))",
     )
     .order("created_at", { ascending: false });
   if (estado === "abiertas") query = query.in("status", ["pending", "contacted"]);
@@ -187,7 +187,7 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                   )}
                   <p className="truncate">
                     <span className="text-muted-foreground">Liga: </span>
-                    {request.seasons?.name ?? "—"}
+                    {seasonLabel(request.seasons) || "—"}
                   </p>
                   {request.kind === "coach" ? (
                     <p className="truncate">

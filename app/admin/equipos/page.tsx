@@ -10,6 +10,7 @@ import {
 } from "@/components/admin/ui";
 import { deleteTeam, saveTeam } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Equipos" };
 export const dynamic = "force-dynamic";
@@ -21,13 +22,16 @@ interface TeamRow {
   color: string | null;
   logo_url: string | null;
   division_id: string;
-  divisions: { name: string; seasons: { name: string } | null } | null;
+  divisions: {
+    name: string;
+    seasons: { name: string; leagues: { name: string } | null } | null;
+  } | null;
 }
 
 interface DivisionOption {
   id: string;
   name: string;
-  seasons: { name: string } | null;
+  seasons: { name: string; leagues: { name: string } | null } | null;
 }
 
 interface PageProps {
@@ -42,11 +46,13 @@ export default async function EquiposPage({ searchParams }: PageProps) {
   const [{ data: divisionRows }, { data: teamRows }] = await Promise.all([
     context.supabase
       .from("divisions")
-      .select("id, name, seasons(name)")
+      .select("id, name, seasons(name, leagues(name))")
       .order("created_at", { ascending: false }),
     context.supabase
       .from("teams")
-      .select("id, name, slug, color, logo_url, division_id, divisions(name, seasons(name))")
+      .select(
+        "id, name, slug, color, logo_url, division_id, divisions(name, seasons(name, leagues(name)))",
+      )
       .order("name"),
   ]);
   const divisions = (divisionRows ?? []) as unknown as DivisionOption[];
@@ -71,7 +77,9 @@ export default async function EquiposPage({ searchParams }: PageProps) {
               </option>
               {divisions.map((division) => (
                 <option key={division.id} value={division.id}>
-                  {division.name} · {division.seasons?.name ?? ""}
+                  {[division.name, seasonLabel(division.seasons)]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </option>
               ))}
             </select>
@@ -130,7 +138,9 @@ export default async function EquiposPage({ searchParams }: PageProps) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{team.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {team.divisions?.name} · {team.divisions?.seasons?.name}
+                  {[team.divisions?.name, seasonLabel(team.divisions?.seasons)]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </span>
               <span

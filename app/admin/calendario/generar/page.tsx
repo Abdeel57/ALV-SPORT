@@ -10,6 +10,7 @@ import {
 import { publishSchedule } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
+import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Generar calendario" };
 export const dynamic = "force-dynamic";
@@ -52,7 +53,7 @@ export default async function GenerarPage({
   const [{ data: divisionRows }, { data: courtRows }] = await Promise.all([
     context.supabase
       .from("divisions")
-      .select("id, name, seasons(name)")
+      .select("id, name, seasons(name, leagues(name))")
       .order("created_at", { ascending: false }),
     context.supabase
       .from("courts")
@@ -62,7 +63,7 @@ export default async function GenerarPage({
   const divisions = (divisionRows ?? []) as unknown as Array<{
     id: string;
     name: string;
-    seasons: { name: string } | null;
+    seasons: { name: string; leagues: { name: string } | null } | null;
   }>;
   const courts = (courtRows ?? []) as unknown as Array<{
     id: string;
@@ -127,7 +128,9 @@ export default async function GenerarPage({
             </option>
             {divisions.map((division) => (
               <option key={division.id} value={division.id}>
-                {division.name} · {division.seasons?.name ?? ""}
+                {[division.name, seasonLabel(division.seasons)]
+                  .filter(Boolean)
+                  .join(" · ")}
               </option>
             ))}
           </select>
