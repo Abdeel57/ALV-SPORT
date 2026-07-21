@@ -11,6 +11,7 @@ import {
   courtSchema,
   divisionSchema,
   formDataToObject,
+  gameCreateSchema,
   gameUpdateSchema,
   leagueSchema,
   newsSchema,
@@ -402,7 +403,15 @@ export async function publishSchedule(formData: FormData): Promise<void> {
     },
   );
 
-  const rows = fixtures.map((fixture) => ({
+  // Sugerencias, no imposición: el admin publica solo los partidos que dejó
+  // seleccionados en la vista previa (el algoritmo es determinista, así que
+  // los índices de la vista previa y de esta corrida coinciden).
+  const included = data.include
+    ? fixtures.filter((_, index) => data.include?.includes(index))
+    : fixtures;
+  if (included.length === 0) fail(generatePath, "Selecciona al menos un partido para publicar");
+
+  const rows = included.map((fixture) => ({
     season_id: seasonId,
     division_id: data.divisionId,
     home_team_id: fixture.homeTeamId,
@@ -417,22 +426,104 @@ export async function publishSchedule(formData: FormData): Promise<void> {
   done(SCHEDULE);
 }
 
-export async function updateGame(formData: FormData): Promise<void> {
-  const context = await ctx();
-  const data = parse(gameUpdateSchema, formData, SCHEDULE);
+// Los formularios usan datetime-local sin zona; la liga opera en el centro de
+// México (UTC-6 fijo, sin horario de verano desde 2022). Interpretar la hora
+// en la zona del servidor (UTC en Railway) la correría 6 horas.
+const MX_UTC_OFFSET = "-06:00";
+
+function localToIso(local: string): string {
+  return new Date(`${local.slice(0, 16)}:00${MX_UTC_OFFSET}`).toISOString();
+}
+
+/** venue_id se deriva del campo elegido (o null si el partido queda sin campo). */
+async function venueIdForCourt(
+  context: AdminContext,
+  courtId: string | null,
+): Promise<string | null> {
+  if (!courtId) return null;
   const { data: courtRow } = await context.supabase
     .from("courts")
     .select("venue_id")
-    .eq("id", data.courtId)
+    .eq("id", courtId)
     .single();
-  const { error } = await context.supabase
-    .from("games")
-    .update({
-      scheduled_at: new Date(data.scheduledAt).toISOString(),
-      court_id: data.courtId,
-      venue_id: (courtRow as { venue_id: string } | null)?.venue_id ?? null,
-    })
-    .eq("id", data.gameId);
+  return (courtRow as { venue_id: string } | null)?.venue_id ?? null;
+}
+
+/** Ambos equipos deben existir y pertenecer a la división del partido. */
+async function assertTeamsInDivision(
+  context: AdminContext,
+  divisionId: string,
+  teamIds: readonly string[],
+  path: string,
+): Promise<void> {
+  const { data: teamRows } = await context.supabase
+    .from("teams")
+    .select("id")
+    .eq("division_id", divisionId)
+    .in("id", teamIds);
+  if ((teamRows ?? []).length !== new Set(teamIds).size) {
+    fail(path, "Los equipos deben pertenecer a la división del partido");
+  }
+}
+
+export async function createGame(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(gameCreateSchema, formData, SCHEDULE);
+  await assertTeamsInDivision(context, data.divisionId, [data.homeTeamId, data.awayTeamId], SCHEDULE);
+
+  const { data: divisionRow } = await context.supabase
+    .from("divisions")
+    .select("season_id")
+    .eq("id", data.divisionId)
+    .single();
+  const seasonId = (divisionRow as { season_id: string } | null)?.season_id;
+  if (!seasonId) fail(SCHEDULE, "División inválida");
+
+  const { error } = await context.supabase.from("games").insert({
+    season_id: seasonId,
+    division_id: data.divisionId,
+    home_team_id: data.homeTeamId,
+    away_team_id: data.awayTeamId,
+    court_id: data.courtId,
+    venue_id: await venueIdForCourt(context, data.courtId),
+    scheduled_at: localToIso(data.scheduledAt),
+    status: "scheduled",
+  });
+  if (error) fail(SCHEDULE, error.message);
+  done(SCHEDULE);
+}
+
+export async function updateGame(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(gameUpdateSchema, formData, SCHEDULE);
+  const patch: Record<string, unknown> = {
+    scheduled_at: localToIso(data.scheduledAt),
+    court_id: data.courtId,
+    venue_id: await venueIdForCourt(context, data.courtId),
+  };
+
+  const changesTeams = data.homeTeamId !== undefined && data.awayTeamId !== undefined;
+  let query = context.supabase.from("games").update(patch).eq("id", data.gameId);
+  if (changesTeams) {
+    const { data: gameRow } = await context.supabase
+      .from("games")
+      .select("division_id")
+      .eq("id", data.gameId)
+      .single();
+    const divisionId = (gameRow as { division_id: string | null } | null)?.division_id;
+    if (divisionId && data.homeTeamId && data.awayTeamId) {
+      await assertTeamsInDivision(context, divisionId, [data.homeTeamId, data.awayTeamId], SCHEDULE);
+    }
+    patch.home_team_id = data.homeTeamId;
+    patch.away_team_id = data.awayTeamId;
+    // Con eventos ya anotados los rivales no se tocan: solo partidos programados.
+    query = context.supabase
+      .from("games")
+      .update(patch)
+      .eq("id", data.gameId)
+      .eq("status", "scheduled");
+  }
+  const { error } = await query;
   if (error) fail(SCHEDULE, error.message);
   done(SCHEDULE);
 }

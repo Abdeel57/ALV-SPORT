@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assignSlots, generateRoundRobin } from "../schedule";
+import {
+  assignSlots,
+  findScheduleConflicts,
+  generateRoundRobin,
+  type ConflictInput,
+} from "../schedule";
 
 const teams8 = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
 const teams5 = ["a", "b", "c", "d", "e"];
@@ -109,5 +114,94 @@ describe("assignSlots", () => {
       const weekday = new Date(`${game.scheduledAt.slice(0, 10)}T00:00:00Z`).getUTCDay();
       expect(weekday).toBe(6);
     }
+  });
+});
+
+describe("findScheduleConflicts", () => {
+  const game = (partial: Partial<ConflictInput> & { id: string }): ConflictInput => ({
+    homeTeamId: "t1",
+    awayTeamId: "t2",
+    courtId: "c1",
+    scheduledAt: "2026-08-01T18:00:00-06:00",
+    ...partial,
+  });
+  const typesOf = (map: Map<string, { type: string }[]>, id: string) =>
+    [...new Set((map.get(id) ?? []).map((w) => w.type))].sort();
+
+  it("un calendario sano (round-robin asignado) no produce advertencias", () => {
+    const scheduled = assignSlots(generateRoundRobin(teams8), {
+      startDate: "2026-08-01",
+      weekdays: [6],
+      times: ["18:00", "20:00"],
+      courtIds: ["c1", "c2"],
+      minRestDays: 6,
+    });
+    const conflicts = findScheduleConflicts(
+      scheduled.map((fixture, index) => ({
+        id: `g${index}`,
+        homeTeamId: fixture.homeTeamId,
+        awayTeamId: fixture.awayTeamId,
+        courtId: fixture.courtId,
+        scheduledAt: fixture.scheduledAt,
+      })),
+    );
+    expect(conflicts.size).toBe(0);
+  });
+
+  it("marca el mismo enfrentamiento repetido en ambos partidos", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a" }),
+      game({ id: "b", scheduledAt: "2026-08-08T18:00:00-06:00", courtId: "c2" }),
+    ]);
+    expect(typesOf(conflicts, "a")).toEqual(["duplicate_matchup"]);
+    expect(typesOf(conflicts, "b")).toEqual(["duplicate_matchup"]);
+  });
+
+  it("la vuelta con localía invertida NO es enfrentamiento repetido", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a" }),
+      game({
+        id: "b",
+        homeTeamId: "t2",
+        awayTeamId: "t1",
+        scheduledAt: "2026-08-08T18:00:00-06:00",
+        courtId: "c2",
+      }),
+    ]);
+    expect(conflicts.size).toBe(0);
+  });
+
+  it("marca a un equipo con dos partidos en el mismo instante", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a" }),
+      game({ id: "b", homeTeamId: "t1", awayTeamId: "t3", courtId: "c2" }),
+    ]);
+    expect(typesOf(conflicts, "a")).toContain("team_clash");
+    expect(typesOf(conflicts, "b")).toContain("team_clash");
+  });
+
+  it("marca una cancha con dos partidos en el mismo instante", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a" }),
+      game({ id: "b", homeTeamId: "t3", awayTeamId: "t4" }),
+    ]);
+    expect(typesOf(conflicts, "a")).toContain("court_clash");
+    expect(typesOf(conflicts, "b")).toContain("court_clash");
+  });
+
+  it("mismo instante en canchas distintas y equipos distintos: sin advertencias", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a" }),
+      game({ id: "b", homeTeamId: "t3", awayTeamId: "t4", courtId: "c2" }),
+    ]);
+    expect(conflicts.size).toBe(0);
+  });
+
+  it("partidos sin cancha nunca chocan por cancha", () => {
+    const conflicts = findScheduleConflicts([
+      game({ id: "a", courtId: null }),
+      game({ id: "b", homeTeamId: "t3", awayTeamId: "t4", courtId: null }),
+    ]);
+    expect(conflicts.size).toBe(0);
   });
 });

@@ -1,24 +1,26 @@
-import { CalendarPlus } from "lucide-react";
+import { Plus, Sparkles, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/admin/confirm-button";
+import { MatchupForm, type TeamOption } from "@/components/admin/matchup-form";
 import {
   AdminTitle,
   EmptyRow,
   Feedback,
-  Field,
   GhostButton,
   StatusChip,
-  SubmitButton,
   inputClass,
 } from "@/components/admin/ui";
 import {
   assignOfficial,
+  createGame,
   deleteGame,
   removeAssignment,
   updateGame,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { findScheduleConflicts, type ScheduleWarning } from "@/lib/engine";
+import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Calendario" };
 export const dynamic = "force-dynamic";
@@ -27,6 +29,9 @@ interface GameRow {
   id: string;
   status: string;
   scheduled_at: string;
+  division_id: string | null;
+  home_team_id: string;
+  away_team_id: string;
   court_id: string | null;
   home: { name: string } | null;
   away: { name: string } | null;
@@ -54,55 +59,129 @@ function toLocalInputValue(iso: string): string {
   return mx.toISOString().slice(0, 16);
 }
 
+// Advertencias sutiles, nunca bloqueantes: el admin decide si el choque es real.
+const warningLabels: Record<ScheduleWarning["type"], string> = {
+  duplicate_matchup: "Enfrentamiento repetido",
+  team_clash: "Un equipo tiene dos partidos a la misma hora",
+  court_clash: "Campo ocupado a la misma hora",
+};
+
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string; edit?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; edit?: string; nuevo?: string }>;
 }
 
 export default async function CalendarioPage({ searchParams }: PageProps) {
-  const { ok, error, edit } = await searchParams;
+  const { ok, error, edit, nuevo } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: gameRows }, { data: courtRows }] = await Promise.all([
-    context.supabase
-      .from("games")
-      .select(
-        "id, status, scheduled_at, court_id, home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name), courts(name), game_assignments(id, role, user_id)",
-      )
-      .neq("status", "finalized")
-      .order("scheduled_at")
-      .limit(60),
-    context.supabase.from("courts").select("id, name").order("name"),
-  ]);
+  const [{ data: gameRows }, { data: courtRows }, { data: divisionRows }, { data: teamRows }] =
+    await Promise.all([
+      context.supabase
+        .from("games")
+        .select(
+          "id, status, scheduled_at, division_id, home_team_id, away_team_id, court_id, home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name), courts(name), game_assignments(id, role, user_id)",
+        )
+        .neq("status", "finalized")
+        .order("scheduled_at")
+        .limit(60),
+      context.supabase.from("courts").select("id, name").order("name"),
+      context.supabase
+        .from("divisions")
+        .select("id, name, seasons(name, leagues(name))")
+        .order("created_at", { ascending: false }),
+      context.supabase.from("teams").select("id, name, division_id").order("name"),
+    ]);
   const games = (gameRows ?? []) as unknown as GameRow[];
   const courts = (courtRows ?? []) as { id: string; name: string }[];
+  const divisions = (
+    (divisionRows ?? []) as unknown as Array<{
+      id: string;
+      name: string;
+      seasons: { name: string; leagues: { name: string } | null } | null;
+    }>
+  ).map((division) => ({
+    id: division.id,
+    label: [division.name, seasonLabel(division.seasons)].filter(Boolean).join(" · "),
+  }));
+  const teams = (teamRows ?? []) as unknown as Array<TeamOption & { division_id: string | null }>;
+
+  const teamsByDivision: Record<string, TeamOption[]> = {};
+  for (const team of teams) {
+    const key = team.division_id ?? "";
+    (teamsByDivision[key] ??= []).push({ id: team.id, name: team.name });
+  }
+  // Partidos sin división (clave ""): se ofrecen todos los equipos.
+  teamsByDivision[""] = teams.map(({ id, name }) => ({ id, name }));
+
+  const conflicts = findScheduleConflicts(
+    games.map((game) => ({
+      id: game.id,
+      homeTeamId: game.home_team_id,
+      awayTeamId: game.away_team_id,
+      courtId: game.court_id,
+      scheduledAt: game.scheduled_at,
+    })),
+  );
+  const warningsFor = (gameId: string): string[] => [
+    ...new Set((conflicts.get(gameId) ?? []).map((warning) => warningLabels[warning.type])),
+  ];
+
+  const creating = nuevo === "1";
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
       <AdminTitle
         action={
-          <Link
-            href="/admin/calendario/generar"
-            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[.99]"
-          >
-            <CalendarPlus className="size-4" aria-hidden />
-            Generar calendario
-          </Link>
+          <>
+            <Link
+              href="/admin/calendario/generar"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-3.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Sparkles className="size-4" aria-hidden />
+              Generar sugerencias
+            </Link>
+            <Link
+              href="/admin/calendario?nuevo=1"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[.99]"
+            >
+              <Plus className="size-4" aria-hidden />
+              Crear enfrentamiento
+            </Link>
+          </>
         }
       >
         Calendario
       </AdminTitle>
       <Feedback ok={ok} error={error} />
 
+      {creating && (
+        <section className="rounded-2xl border p-4">
+          <h2 className="mb-3 font-display text-xl">Nuevo enfrentamiento</h2>
+          {divisions.length === 0 ? (
+            <EmptyRow>Primero crea una división con equipos.</EmptyRow>
+          ) : (
+            <MatchupForm
+              action={createGame}
+              divisions={divisions}
+              teamsByDivision={teamsByDivision}
+              courts={courts}
+              cancelHref="/admin/calendario"
+            />
+          )}
+        </section>
+      )}
+
       {games.length === 0 ? (
         <EmptyRow>
-          No hay partidos próximos. Usa “Generar calendario” para crear el rol
-          de una división completa.
+          No hay partidos próximos. Crea un enfrentamiento manual o usa
+          “Generar sugerencias” para armar el rol de una división completa.
         </EmptyRow>
       ) : (
         <ul className="flex flex-col gap-3">
           {games.map((game) => {
             const editing = edit === game.id;
+            const warnings = warningsFor(game.id);
             const scorekeepers = game.game_assignments.filter(
               (a) => a.role === "scorekeeper",
             );
@@ -123,48 +202,36 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                     <span className="text-brand-amber">Sin anotador</span>
                   )}
                 </p>
+                {warnings.length > 0 && (
+                  <p className="flex items-start gap-1.5 text-xs text-brand-amber">
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                    <span>{warnings.join(" · ")}</span>
+                  </p>
+                )}
 
                 {editing ? (
-                  <form action={updateGame} className="grid gap-3 sm:grid-cols-3">
-                    <input type="hidden" name="gameId" value={game.id} />
-                    <Field label="Fecha y hora (centro de México)">
-                      <input
-                        type="datetime-local"
-                        name="scheduledAt"
-                        required
-                        defaultValue={toLocalInputValue(game.scheduled_at)}
-                        className={inputClass}
-                      />
-                    </Field>
-                    <Field label="Campo">
-                      <select name="courtId" required defaultValue={game.court_id ?? ""} className={inputClass}>
-                        <option value="" disabled>
-                          Selecciona
-                        </option>
-                        {courts.map((court) => (
-                          <option key={court.id} value={court.id}>
-                            {court.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <div className="flex items-end gap-2">
-                      <SubmitButton>Guardar</SubmitButton>
-                      <Link
-                        href="/admin/calendario"
-                        className="flex min-h-12 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
-                      >
-                        Cancelar
-                      </Link>
-                    </div>
-                  </form>
+                  <MatchupForm
+                    action={updateGame}
+                    teamsByDivision={teamsByDivision}
+                    courts={courts}
+                    cancelHref="/admin/calendario"
+                    initial={{
+                      gameId: game.id,
+                      divisionId: game.division_id ?? "",
+                      homeTeamId: game.home_team_id,
+                      awayTeamId: game.away_team_id,
+                      scheduledAt: toLocalInputValue(game.scheduled_at),
+                      courtId: game.court_id,
+                      teamsLocked: game.status !== "scheduled",
+                    }}
+                  />
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     <Link
                       href={`/admin/calendario?edit=${game.id}`}
                       className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
                     >
-                      Reprogramar
+                      Editar
                     </Link>
                     {game.status === "scheduled" && (
                       <form action={deleteGame.bind(null, game.id)}>

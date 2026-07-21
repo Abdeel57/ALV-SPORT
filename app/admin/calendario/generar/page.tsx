@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SuggestionPicker } from "@/components/admin/suggestion-picker";
 import {
   AdminTitle,
   EmptyRow,
@@ -12,7 +13,7 @@ import { requireAdmin } from "@/lib/admin/auth";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { seasonLabel } from "@/lib/utils";
 
-export const metadata: Metadata = { title: "Generar calendario" };
+export const metadata: Metadata = { title: "Generar sugerencias" };
 export const dynamic = "force-dynamic";
 
 const WEEKDAYS = [
@@ -114,7 +115,9 @@ export default async function GenerarPage({
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Generar calendario</AdminTitle>
+      <AdminTitle subtitle="El algoritmo propone el rol completo; tú eliges qué se publica.">
+        Generar sugerencias
+      </AdminTitle>
       <Feedback
         error={typeof params.error === "string" ? params.error : previewError ?? undefined}
       />
@@ -204,77 +207,41 @@ export default async function GenerarPage({
           </Field>
         </div>
         <div className="sm:col-span-2">
-          <SubmitButton>Ver vista previa</SubmitButton>
+          <SubmitButton>Ver sugerencias</SubmitButton>
         </div>
       </form>
 
       {preview && (
         <section className="flex flex-col gap-3">
           <h2 className="font-display text-xl">
-            Vista previa · {preview.fixtures.length} partidos · {preview.teamCount} equipos
+            Sugerencias · {preview.fixtures.length} partidos · {preview.teamCount} equipos
           </h2>
-          <div className="max-h-96 overflow-y-auto rounded-2xl border">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-background">
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">J</th>
-                  <th className="px-3 py-2 font-medium">Partido</th>
-                  <th className="px-3 py-2 font-medium">Fecha</th>
-                  <th className="px-3 py-2 font-medium">Campo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.fixtures.map((fixture, index) => (
-                  <tr key={index} className="border-b last:border-0">
-                    <td className="px-3 py-2 text-muted-foreground tabular-nums">
-                      {fixture.round}
-                    </td>
-                    <td className="px-3 py-2">
-                      {preview.nameById.get(fixture.awayTeamId)} @{" "}
-                      {preview.nameById.get(fixture.homeTeamId)}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {dateTimeFormat.format(new Date(fixture.scheduledAt))}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {preview.courtById.get(fixture.courtId)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Publicar: mismos parámetros, ahora como mutación */}
-          <form action={publishSchedule} className="flex flex-col gap-2">
-            <input type="hidden" name="divisionId" value={divisionId} />
-            <input type="hidden" name="startDate" value={startDate} />
-            {weekdays.map((day) => (
-              <input key={day} type="hidden" name="weekdays" value={day} />
-            ))}
-            {times.map((time) => (
-              <input key={time} type="hidden" name="times" value={time} />
-            ))}
-            {courtIds.map((id) => (
-              <input key={id} type="hidden" name="courtIds" value={id} />
-            ))}
-            <input type="hidden" name="minRestDays" value={minRestDays} />
-            {doubleRound && <input type="hidden" name="doubleRound" value="true" />}
-            <SubmitButton>
-              Publicar {preview.fixtures.length} partidos al sitio público
-            </SubmitButton>
-            <p className="text-xs text-muted-foreground">
-              Después de publicar puedes ajustar fecha, hora o campo de
-              cualquier partido desde el calendario.
-            </p>
-          </form>
+          {/* Publicar: mismos parámetros como mutación + selección por partido */}
+          <SuggestionPicker
+            action={publishSchedule}
+            fixtures={preview.fixtures.map((fixture) => ({
+              round: fixture.round,
+              matchup: `${preview.nameById.get(fixture.awayTeamId)} @ ${preview.nameById.get(fixture.homeTeamId)}`,
+              dateLabel: dateTimeFormat.format(new Date(fixture.scheduledAt)),
+              courtName: preview.courtById.get(fixture.courtId) ?? "",
+            }))}
+            hidden={{
+              divisionId,
+              startDate,
+              weekdays: weekdays.map(String),
+              times,
+              courtIds,
+              minRestDays: String(minRestDays),
+              ...(doubleRound ? { doubleRound: "true" } : {}),
+            }}
+          />
         </section>
       )}
 
       {!preview && !previewError && (
         <EmptyRow>
-          Configura las restricciones y toca “Ver vista previa”: nada se
-          publica hasta que lo confirmes.
+          Configura las restricciones y toca “Ver sugerencias”: nada se
+          publica hasta que tú lo confirmes.
         </EmptyRow>
       )}
     </main>

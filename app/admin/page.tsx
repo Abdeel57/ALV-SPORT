@@ -99,7 +99,7 @@ function StatTile({
 
 const quickActions: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin/temporadas", label: "Nueva temporada", icon: Trophy },
-  { href: "/admin/calendario/generar", label: "Generar calendario", icon: CalendarPlus },
+  { href: "/admin/calendario?nuevo=1", label: "Crear enfrentamiento", icon: CalendarPlus },
   { href: "/admin/inscripciones", label: "Registrar inscripción", icon: CreditCard },
   { href: "/admin/sanciones", label: "Aplicar sanción", icon: Ban },
 ];

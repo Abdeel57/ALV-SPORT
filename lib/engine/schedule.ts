@@ -30,8 +30,79 @@ export interface ScheduledFixture extends RoundRobinFixture {
   courtId: string;
 }
 
+export interface ConflictInput {
+  id: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  courtId: string | null;
+  /** ISO con offset; dos partidos chocan si coinciden en el instante exacto. */
+  scheduledAt: string;
+}
+
+export type ScheduleWarningType = "duplicate_matchup" | "team_clash" | "court_clash";
+
+export interface ScheduleWarning {
+  type: ScheduleWarningType;
+  gameId: string;
+  otherGameId: string;
+}
+
 const BYE = "__bye__";
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Advertencias (no bloqueantes) sobre un conjunto de partidos programados:
+ * el mismo enfrentamiento repetido (par ordenado local/visita: la vuelta con
+ * localía invertida NO es repetición), un equipo con dos partidos en el mismo
+ * instante, y una cancha con dos partidos en el mismo instante.
+ */
+export function findScheduleConflicts(
+  games: readonly ConflictInput[],
+): Map<string, ScheduleWarning[]> {
+  const warnings = new Map<string, ScheduleWarning[]>();
+  const add = (warning: ScheduleWarning) => {
+    const list = warnings.get(warning.gameId) ?? [];
+    list.push(warning);
+    warnings.set(warning.gameId, list);
+  };
+  const flagGroup = (group: readonly ConflictInput[], type: ScheduleWarningType) => {
+    if (group.length < 2) return;
+    for (const game of group) {
+      const other = group.find((candidate) => candidate.id !== game.id);
+      if (other) add({ type, gameId: game.id, otherGameId: other.id });
+    }
+  };
+  const groupBy = (keyOf: (game: ConflictInput) => string | null) => {
+    const groups = new Map<string, ConflictInput[]>();
+    for (const game of games) {
+      const key = keyOf(game);
+      if (key === null) continue;
+      const list = groups.get(key) ?? [];
+      list.push(game);
+      groups.set(key, list);
+    }
+    return groups;
+  };
+  const instant = (game: ConflictInput) => new Date(game.scheduledAt).getTime();
+
+  for (const group of groupBy((g) => `${g.homeTeamId}@${g.awayTeamId}`).values()) {
+    flagGroup(group, "duplicate_matchup");
+  }
+  const byTeamInstant = new Map<string, ConflictInput[]>();
+  for (const game of games) {
+    for (const teamId of [game.homeTeamId, game.awayTeamId]) {
+      const key = `${teamId}|${instant(game)}`;
+      const list = byTeamInstant.get(key) ?? [];
+      list.push(game);
+      byTeamInstant.set(key, list);
+    }
+  }
+  for (const group of byTeamInstant.values()) flagGroup(group, "team_clash");
+  for (const group of groupBy((g) => (g.courtId ? `${g.courtId}|${instant(g)}` : null)).values()) {
+    flagGroup(group, "court_clash");
+  }
+  return warnings;
+}
 
 /**
  * Rondas por método del círculo: n-1 jornadas (n par; con n impar se

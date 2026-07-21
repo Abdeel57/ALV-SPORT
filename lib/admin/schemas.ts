@@ -140,13 +140,45 @@ export const cashPaymentSchema = z.object({
   note: requiredText("La nota del pago en efectivo", 300),
 });
 
-export const gameUpdateSchema = z.object({
-  gameId: z.uuid(),
-  scheduledAt: z
-    .string()
-    .min(10, "Fecha y hora obligatorias"),
-  courtId: uuid("la cancha"),
-});
+/** Campo opcional del formulario: "" significa "sin campo asignado". */
+const optionalCourt = z
+  .union([z.uuid({ error: "Selecciona un campo válido" }), z.literal("")])
+  .transform((value) => (value === "" ? null : value));
+
+const localDateTime = z
+  .string()
+  .min(16, "Fecha y hora obligatorias")
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, "Fecha y hora inválidas");
+
+export const gameCreateSchema = z
+  .object({
+    divisionId: uuid("la división"),
+    homeTeamId: uuid("el equipo local"),
+    awayTeamId: uuid("el equipo visitante"),
+    scheduledAt: localDateTime,
+    courtId: optionalCourt,
+  })
+  .refine((data) => data.homeTeamId !== data.awayTeamId, {
+    message: "Un equipo no puede jugar contra sí mismo",
+    path: ["awayTeamId"],
+  });
+
+export const gameUpdateSchema = z
+  .object({
+    gameId: z.uuid(),
+    scheduledAt: localDateTime,
+    courtId: optionalCourt,
+    // Rivales: solo se envían al editar un partido aún programado.
+    homeTeamId: z.uuid().optional(),
+    awayTeamId: z.uuid().optional(),
+  })
+  .refine(
+    (data) =>
+      data.homeTeamId === undefined ||
+      data.awayTeamId === undefined ||
+      data.homeTeamId !== data.awayTeamId,
+    { message: "Un equipo no puede jugar contra sí mismo", path: ["awayTeamId"] },
+  );
 
 export const assignmentSchema = z.object({
   gameId: z.uuid(),
@@ -154,18 +186,31 @@ export const assignmentSchema = z.object({
   role: z.enum(["scorekeeper", "referee"], { error: "Rol inválido" }),
 });
 
+/** formDataToObject entrega string con UN valor y array con varios: normaliza. */
+const asArray = (value: unknown): unknown =>
+  value === undefined || Array.isArray(value) ? value : [value];
+
 export const scheduleConfigSchema = z.object({
   divisionId: uuid("la división"),
   startDate: dateStr("Fecha de inicio"),
-  weekdays: z
-    .array(z.coerce.number().int().min(0).max(6))
-    .min(1, "Elige al menos un día de juego"),
-  times: z
-    .array(z.string().regex(/^\d{2}:\d{2}$/, "Horario inválido"))
-    .min(1, "Elige al menos un horario"),
-  courtIds: z.array(z.uuid()).min(1, "Elige al menos una cancha"),
+  weekdays: z.preprocess(
+    asArray,
+    z.array(z.coerce.number().int().min(0).max(6)).min(1, "Elige al menos un día de juego"),
+  ),
+  times: z.preprocess(
+    asArray,
+    z
+      .array(z.string().regex(/^\d{2}:\d{2}$/, "Horario inválido"))
+      .min(1, "Elige al menos un horario"),
+  ),
+  courtIds: z.preprocess(
+    asArray,
+    z.array(z.uuid()).min(1, "Elige al menos una cancha"),
+  ),
   minRestDays: z.coerce.number().int().min(0).max(30).default(4),
   doubleRound: z.coerce.boolean().default(false),
+  // Índices de la vista previa elegidos por el admin; ausente = publicar todos.
+  include: z.preprocess(asArray, z.array(z.coerce.number().int().min(0)).optional()),
 });
 
 /** Convierte FormData a objeto plano (múltiples valores → array). */
