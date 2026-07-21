@@ -11,6 +11,13 @@ const withSerwist = withSerwistInit({
   additionalPrecacheEntries: [{ url: "/offline", revision: null }],
 });
 
+// Fotos y logos viven en Supabase Storage. En autoalojado (Railway/Kong) el
+// host público sale de NEXT_PUBLIC_SUPABASE_URL, que existe en build (ver
+// Dockerfile); sin él en la lista, el optimizador responde 400 a esas imágenes.
+const storageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
+  : null;
+
 const nextConfig: NextConfig = {
   // Hay lockfiles ajenos arriba en el árbol (C:\Users\Admin): fijar la raíz.
   outputFileTracingRoot: process.cwd(),
@@ -19,10 +26,18 @@ const nextConfig: NextConfig = {
   images: {
     // Formatos modernos: el optimizador sirve AVIF/WebP con fallback automático.
     formats: ["image/avif", "image/webp"],
-    // Fotos y logos suben a Supabase Storage; se permite ese host remoto.
     remotePatterns: [
-      { protocol: "https", hostname: "**.supabase.co" },
-      { protocol: "https", hostname: "**.supabase.in" },
+      ...(storageUrl
+        ? [
+            {
+              protocol: storageUrl.protocol === "http:" ? ("http" as const) : ("https" as const),
+              hostname: storageUrl.hostname,
+              ...(storageUrl.port ? { port: storageUrl.port } : {}),
+            },
+          ]
+        : []),
+      { protocol: "https" as const, hostname: "**.supabase.co" },
+      { protocol: "https" as const, hostname: "**.supabase.in" },
     ],
   },
 };
