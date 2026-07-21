@@ -308,13 +308,13 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                           ))}
                         </select>
                       </Field>
-                      <Field label="Número">
+                      <Field label="Número" hint="opcional">
                         <input
                           name="jerseyNumber"
-                          required
+                          inputMode="numeric"
                           maxLength={4}
                           defaultValue={request.jersey_number ?? ""}
-                          placeholder="00"
+                          placeholder="Sin asignar"
                           className={inputClass}
                         />
                       </Field>

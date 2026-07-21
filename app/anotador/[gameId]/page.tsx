@@ -10,6 +10,7 @@ import type {
 import { Card, CardContent } from "@/components/ui/card";
 import { sportConfigSchema } from "@/lib/engine";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { compareJerseyNumber } from "@/lib/utils";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Anotando" };
@@ -53,9 +54,9 @@ interface RosterRow {
 }
 
 function sortRoster(a: RosterPlayer, b: RosterPlayer): number {
-  const numA = Number(a.jerseyNumber);
-  const numB = Number(b.jerseyNumber);
-  if (Number.isFinite(numA) && Number.isFinite(numB)) return numA - numB;
+  // Los que aún no tienen número asignado van al final, ordenados por apellido.
+  const byJersey = compareJerseyNumber(a.jerseyNumber, b.jerseyNumber);
+  if (byJersey !== 0) return byJersey;
   return a.lastName.localeCompare(b.lastName);
 }
 

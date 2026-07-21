@@ -93,7 +93,8 @@ export const playerSchema = z.object({
 export const rosterAssignSchema = z.object({
   teamId: uuid("el equipo"),
   playerId: uuid("el jugador"),
-  jerseyNumber: requiredText("El número", 4),
+  // Opcional: los números se reparten después de cerrar inscripciones.
+  jerseyNumber: optionalText(4),
   position: optionalText(12),
 });
 

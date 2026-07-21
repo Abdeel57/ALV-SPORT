@@ -142,11 +142,15 @@ export const approveCoachSchema = z.object({
 export const approvePlayerSchema = z.object({
   requestId: z.uuid(),
   teamId: z.uuid({ error: "Selecciona el equipo" }),
+  // Opcional: al inscribirse todavía no se reparten los números, así que el
+  // admin puede aprobar sin uno y asignarlo después desde el roster.
   jerseyNumber: z
-    .string({ error: "El número es obligatorio" })
+    .string()
     .trim()
-    .min(1, "El número es obligatorio")
-    .max(4),
+    .max(4)
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional(),
   position: z
     .string()
     .trim()

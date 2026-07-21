@@ -10,6 +10,7 @@ import {
   softballGames,
   teams,
 } from "@/lib/seed-data";
+import { compareJerseyNumber } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Demo de la mesa de anotación" };
 
@@ -36,7 +37,11 @@ function buildTeam(teamId: string): ConsoleTeam {
         jerseyNumber: entry.jerseyNumber,
       };
     })
-    .sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
+    .sort(
+      (a, b) =>
+        compareJerseyNumber(a.jerseyNumber, b.jerseyNumber) ||
+        a.lastName.localeCompare(b.lastName),
+    );
   return {
     id: teamId,
     name: team?.name ?? "Equipo",

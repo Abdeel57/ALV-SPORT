@@ -25,6 +25,7 @@ import {
   teams as seedTeams,
   type SeedGame,
 } from "@/lib/seed-data";
+import { compareJerseyNumber } from "@/lib/utils";
 
 /**
  * Proveedor local: la experiencia pública completa calculada desde
@@ -181,7 +182,11 @@ function rosterOfTeam(teamId: string): LineupEntry[] {
       jerseyNumber: entry.jerseyNumber,
       battingOrder: null,
     }))
-    .sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
+    .sort(
+      (a, b) =>
+        compareJerseyNumber(a.jerseyNumber, b.jerseyNumber) ||
+        a.name.localeCompare(b.name),
+    );
 }
 
 export const seedProvider: PublicDataProvider = {

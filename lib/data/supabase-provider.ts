@@ -19,6 +19,7 @@ import {
   type StandingAggregate,
 } from "@/lib/engine";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { compareJerseyNumber } from "@/lib/utils";
 
 /**
  * Proveedor respaldado por Supabase. El orden de standings reutiliza
@@ -489,7 +490,11 @@ export const supabaseProvider: PublicDataProvider = {
         jerseyNumber: row.jersey_number,
         battingOrder: null,
       }))
-      .sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
+      .sort(
+        (a, b) =>
+          compareJerseyNumber(a.jerseyNumber, b.jerseyNumber) ||
+          a.name.localeCompare(b.name),
+      );
 
     const streak = summaries
       .filter((game) => game.status === "finalized")

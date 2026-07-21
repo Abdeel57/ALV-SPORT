@@ -116,8 +116,14 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
               ))}
             </select>
           </Field>
-          <Field label="Número">
-            <input name="jerseyNumber" required placeholder="23" className={inputClass} />
+          <Field label="Número" hint="opcional">
+            <input
+              name="jerseyNumber"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="23"
+              className={inputClass}
+            />
           </Field>
           <Field label="Posición (opcional)">
             <input name="position" placeholder="SS" className={inputClass} />

@@ -345,7 +345,7 @@ export async function assignToRoster(formData: FormData): Promise<void> {
   const { error } = await context.supabase.from("rosters").insert({
     team_id: data.teamId,
     player_id: data.playerId,
-    jersey_number: data.jerseyNumber,
+    jersey_number: data.jerseyNumber ?? null,
     position: data.position ?? null,
   });
   if (error) fail(PLAYERS, error.message);
@@ -759,7 +759,7 @@ export async function approvePlayerRequest(formData: FormData): Promise<void> {
   const { error: rosterError } = await context.supabase.from("rosters").insert({
     team_id: data.teamId,
     player_id: playerId,
-    jersey_number: data.jerseyNumber,
+    jersey_number: data.jerseyNumber ?? null,
     position: data.position ?? null,
   });
   if (rosterError) fail(SIGNUPS, rosterError.message);

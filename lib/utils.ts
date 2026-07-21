@@ -17,6 +17,26 @@ export function slugify(input: string): string {
     .slice(0, 40)
 }
 
+/**
+ * Compara dos números de playera para ordenar un roster. El número es
+ * opcional (al inscribirse aún no se reparten), así que quien no tiene número
+ * va al FINAL: sin esto `Number(null)` es 0 y los colaría al principio.
+ * Devuelve 0 cuando ninguno tiene número, para que el llamador desempate.
+ */
+export function compareJerseyNumber(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const numA = a ? Number(a) : Number.NaN
+  const numB = b ? Number(b) : Number.NaN
+  const okA = Number.isFinite(numA)
+  const okB = Number.isFinite(numB)
+  if (okA && okB) return numA - numB
+  if (okA) return -1
+  if (okB) return 1
+  return 0
+}
+
 /** Divide un nombre completo en nombre y apellido (heurística es-MX). */
 export function splitFullName(full: string): { firstName: string; lastName: string } {
   const parts = full.trim().split(/\s+/).filter(Boolean)
