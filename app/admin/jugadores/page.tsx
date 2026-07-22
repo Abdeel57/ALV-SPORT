@@ -12,6 +12,7 @@ import {
 } from "@/components/admin/ui";
 import {
   assignToRoster,
+  bulkAssignRoster,
   deletePlayer,
   removeFromRoster,
   savePlayer,
@@ -81,6 +82,46 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
           </Field>
           <div className="sm:col-span-2">
             <SubmitButton>Crear jugador</SubmitButton>
+          </div>
+        </form>
+      </section>
+
+      <section className="rounded-2xl border p-4">
+        <h2 className="mb-3 font-display text-xl">Alta por lista (roster completo)</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Pega la lista del equipo: un jugador por línea, número de playera
+          opcional al inicio o al final. Los nombres que ya existen se
+          reutilizan (no se duplican) y quien ya esté en un roster de la misma
+          división se omite.
+        </p>
+        <form action={bulkAssignRoster} className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="Equipo">
+              <select name="teamId" required defaultValue="" className={inputClass}>
+                <option value="" disabled>
+                  Selecciona
+                </option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Lista de jugadores">
+              <textarea
+                name="list"
+                required
+                rows={8}
+                placeholder={"23 Juan Pérez\nMaría López #10\nPedro Ramírez"}
+                className={`${inputClass} min-h-40 py-2.5`}
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <SubmitButton>Agregar lista al equipo</SubmitButton>
           </div>
         </form>
       </section>

@@ -62,7 +62,8 @@ export function Feedback({
   if (ok) {
     return (
       <p role="status" className="rounded-lg border border-brand-silver/40 bg-secondary px-4 py-3 text-sm">
-        Cambios guardados.
+        {/* ok=1 es el genérico; cualquier otro texto es un resumen específico. */}
+        {ok === "1" ? "Cambios guardados." : ok}
       </p>
     );
   }

@@ -90,6 +90,15 @@ export const playerSchema = z.object({
   birthdate: dateStr("Fecha de nacimiento").nullable().optional().or(z.literal("").transform(() => null)),
 });
 
+export const rosterBulkSchema = z.object({
+  teamId: uuid("el equipo"),
+  list: z
+    .string({ error: "Pega la lista de jugadores" })
+    .trim()
+    .min(1, "Pega la lista de jugadores")
+    .max(4000, "La lista es demasiado larga"),
+});
+
 export const rosterAssignSchema = z.object({
   teamId: uuid("el equipo"),
   playerId: uuid("el jugador"),

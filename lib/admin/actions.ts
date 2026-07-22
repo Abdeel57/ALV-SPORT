@@ -18,6 +18,7 @@ import {
   playerSchema,
   registrationCreateSchema,
   rosterAssignSchema,
+  rosterBulkSchema,
   sanctionSchema,
   scheduleConfigSchema,
   seasonSchema,
@@ -25,6 +26,7 @@ import {
   teamSchema,
   venueSchema,
 } from "./schemas";
+import { parseRosterList } from "./roster-list";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
 import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
@@ -355,6 +357,103 @@ export async function assignToRoster(formData: FormData): Promise<void> {
 
 export async function removeFromRoster(id: string): Promise<void> {
   await deleteRow(await ctx(), "rosters", id, PLAYERS);
+}
+
+/**
+ * Alta por lista: crea de un golpe los jugadores pegados (una línea cada uno,
+ * número opcional) y los asigna al roster del equipo. Un nombre que ya existe
+ * en la organización se reutiliza en lugar de duplicarse; quien ya esté en un
+ * roster activo de la división se omite y se reporta, igual que la regla de
+ * elegibilidad del alta individual.
+ */
+export async function bulkAssignRoster(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(rosterBulkSchema, formData, PLAYERS);
+  const { entries, errors } = parseRosterList(data.list);
+  if (errors.length > 0) fail(PLAYERS, errors.slice(0, 3).join(" · "));
+
+  const { data: teamRow } = await context.supabase
+    .from("teams")
+    .select("division_id, name")
+    .eq("id", data.teamId)
+    .single();
+  const team = teamRow as { division_id: string; name: string } | null;
+  if (!team) fail(PLAYERS, "Equipo inválido");
+
+  // Reusar homónimos exactos de la organización (RLS acota el tenant).
+  const nameKey = (first: string, last: string) =>
+    `${first} ${last}`.toLocaleLowerCase("es-MX");
+  const { data: playerRows } = await context.supabase
+    .from("players")
+    .select("id, first_name, last_name");
+  const existingByName = new Map(
+    ((playerRows ?? []) as { id: string; first_name: string; last_name: string }[]).map(
+      (player) => [nameKey(player.first_name, player.last_name), player.id],
+    ),
+  );
+
+  const matchedIds = entries
+    .map((entry) => existingByName.get(nameKey(entry.firstName, entry.lastName)))
+    .filter((id): id is string => id !== undefined);
+  const alreadyInDivision = new Set<string>();
+  if (matchedIds.length > 0) {
+    const { data: conflictRows } = await context.supabase
+      .from("rosters")
+      .select("player_id, teams!inner(division_id)")
+      .in("player_id", matchedIds)
+      .eq("status", "active")
+      .eq("teams.division_id", team.division_id);
+    for (const row of (conflictRows ?? []) as { player_id: string }[]) {
+      alreadyInDivision.add(row.player_id);
+    }
+  }
+
+  const toCreate = entries.filter(
+    (entry) => !existingByName.has(nameKey(entry.firstName, entry.lastName)),
+  );
+  if (toCreate.length > 0) {
+    const { data: createdRows, error: createError } = await context.supabase
+      .from("players")
+      .insert(
+        toCreate.map((entry) => ({
+          organization_id: context.organizationId,
+          first_name: entry.firstName,
+          last_name: entry.lastName,
+        })),
+      )
+      .select("id, first_name, last_name");
+    if (createError) fail(PLAYERS, createError.message);
+    for (const row of (createdRows ?? []) as { id: string; first_name: string; last_name: string }[]) {
+      existingByName.set(nameKey(row.first_name, row.last_name), row.id);
+    }
+  }
+
+  const rosterRows: { team_id: string; player_id: string; jersey_number: string | null }[] = [];
+  let skipped = 0;
+  for (const entry of entries) {
+    const playerId = existingByName.get(nameKey(entry.firstName, entry.lastName));
+    if (!playerId) continue;
+    if (alreadyInDivision.has(playerId)) {
+      skipped += 1;
+      continue;
+    }
+    rosterRows.push({
+      team_id: data.teamId,
+      player_id: playerId,
+      jersey_number: entry.jerseyNumber,
+    });
+  }
+  if (rosterRows.length > 0) {
+    const { error } = await context.supabase.from("rosters").insert(rosterRows);
+    if (error) fail(PLAYERS, error.message);
+  }
+
+  const message =
+    `${rosterRows.length} jugador${rosterRows.length === 1 ? "" : "es"} en el roster de ${team.name}` +
+    (skipped > 0 ? ` · ${skipped} ya estaba${skipped === 1 ? "" : "n"} en la división (omitidos)` : "");
+  revalidatePath(PLAYERS);
+  revalidatePath("/admin");
+  redirect(`${PLAYERS}?ok=${encodeURIComponent(message)}`);
 }
 
 /* ------------------------------ Calendario ---------------------------- */
