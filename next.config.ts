@@ -23,6 +23,17 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
   // Railway: imagen mínima con server.js autocontenido (ver Dockerfile).
   output: "standalone",
+  experimental: {
+    serverActions: {
+      // Las fotos suben desde teléfonos vía Server Actions (escudos, fotos de
+      // jugador, imágenes de noticia). El default de Next es 1 MB: mataba la
+      // petición ANTES de la validación propia de 4 MB (uploadImage), y el
+      // usuario veía la página de error en vez de un mensaje claro. El tope
+      // real por archivo lo sigue poniendo uploadImage; esto solo evita que
+      // el transporte rechace el formulario.
+      bodySizeLimit: "25mb",
+    },
+  },
   images: {
     // Formatos modernos: el optimizador sirve AVIF/WebP con fallback automático.
     formats: ["image/avif", "image/webp"],
