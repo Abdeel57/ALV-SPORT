@@ -8,6 +8,7 @@ import type {
   ServerEventRow,
 } from "@/components/anotador/types";
 import { Card, CardContent } from "@/components/ui/card";
+import { isOrgManager } from "@/lib/admin/auth";
 import { sportConfigSchema } from "@/lib/engine";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { compareJerseyNumber } from "@/lib/utils";
@@ -105,7 +106,7 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     .eq("user_id", user.id)
     .eq("role", "scorekeeper")
     .maybeSingle();
-  if (!assignment) {
+  if (!assignment && !(await isOrgManager(supabase, user.id))) {
     return (
       <Notice>
         No estás asignado como anotador de este partido. Pide la asignación al

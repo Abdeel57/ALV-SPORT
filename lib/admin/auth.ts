@@ -14,6 +14,25 @@ export interface AdminContext {
  * de Postgres es la barrera real; esto evita renderizar el panel a quien
  * no corresponde. MVP: se administra la primera organización del usuario.
  */
+/**
+ * True si el usuario tiene rol org_admin/season_manager (sin redirigir).
+ * La mesa de anotación lo usa para dejar anotar SIN asignación explícita —
+ * la misma regla que ya aplican las políticas RLS de game_events.
+ */
+export async function isOrgManager(
+  supabase: AdminContext["supabase"],
+  userId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("user_id", userId)
+    .in("role", ["org_admin", "season_manager"])
+    .limit(1)
+    .maybeSingle();
+  return Boolean(data);
+}
+
 export async function requireAdmin(): Promise<AdminContext | null> {
   if (!hasSupabaseEnv()) return null;
   const supabase = await getSupabaseServerClient();

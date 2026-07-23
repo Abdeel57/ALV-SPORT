@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { isOrgManager } from "@/lib/admin/auth";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -67,25 +68,32 @@ export default async function AnotadorPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: assignmentRows } = await supabase
-    .from("game_assignments")
-    .select("game_id")
-    .eq("user_id", user.id)
-    .eq("role", "scorekeeper");
-  const gameIds = (assignmentRows ?? []).map(
-    (row) => (row as { game_id: string }).game_id,
-  );
+  // Admin/manager ven TODOS los juegos abiertos (pueden anotar cualquiera,
+  // igual que en RLS); los scorekeepers solo sus asignados.
+  const manager = await isOrgManager(supabase, user.id);
+  let gameIds: string[] | null = null;
+  if (!manager) {
+    const { data: assignmentRows } = await supabase
+      .from("game_assignments")
+      .select("game_id")
+      .eq("user_id", user.id)
+      .eq("role", "scorekeeper");
+    gameIds = (assignmentRows ?? []).map(
+      (row) => (row as { game_id: string }).game_id,
+    );
+  }
 
   let games: AssignedGameRow[] = [];
   let teams = new Map<string, TeamRow>();
-  if (gameIds.length > 0) {
-    const { data: gameRows } = await supabase
+  if (gameIds === null || gameIds.length > 0) {
+    let query = supabase
       .from("games")
       .select("id, scheduled_at, status, home_team_id, away_team_id")
-      .in("id", gameIds)
       .neq("status", "finalized")
       .neq("status", "canceled")
       .order("scheduled_at");
+    if (gameIds !== null) query = query.in("id", gameIds);
+    const { data: gameRows } = await query;
     games = (gameRows ?? []) as AssignedGameRow[];
 
     const teamIds = [
@@ -115,8 +123,9 @@ export default async function AnotadorPage() {
       {games.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No tienes partidos asignados pendientes. Pide al administrador de
-            la liga que te asigne como anotador.
+            {manager
+              ? "No hay partidos abiertos por anotar."
+              : "No tienes partidos asignados pendientes. Pide al administrador de la liga que te asigne como anotador."}
           </CardContent>
         </Card>
       ) : (

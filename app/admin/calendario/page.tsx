@@ -227,6 +227,14 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                   />
                 ) : (
                   <div className="flex flex-wrap gap-2">
+                    {game.status !== "canceled" && (
+                      <Link
+                        href={`/anotador/${game.id}`}
+                        className="flex min-h-11 items-center rounded-lg border border-brand-amber/50 px-3 text-sm text-brand-amber hover:bg-muted"
+                      >
+                        Anotar
+                      </Link>
+                    )}
                     <Link
                       href={`/admin/calendario?edit=${game.id}`}
                       className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
