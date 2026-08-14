@@ -1,3 +1,4 @@
+import { Pencil, Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import {
@@ -114,35 +115,46 @@ export default async function EquiposPage({ searchParams }: PageProps) {
           {teams.map((team) => (
             <li
               key={team.id}
-              className="flex items-center gap-3 rounded-xl border px-4 py-3"
+              className="flex items-center gap-2.5 rounded-xl border px-3 py-3 sm:gap-3 sm:px-4"
             >
-              {team.logo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={team.logo_url}
-                  alt=""
-                  className="size-10 rounded-full border object-cover"
-                />
-              ) : (
-                <span
-                  aria-hidden
-                  className="flex size-10 items-center justify-center rounded-full border font-display"
-                  style={{
-                    backgroundColor: `${team.color ?? "#666"}26`,
-                    borderColor: `${team.color ?? "#666"}66`,
-                  }}
-                >
-                  {team.name.slice(0, 1)}
+              {/* Tocar el equipo abre su roster en Jugadores. */}
+              <a
+                href={`/admin/jugadores?team=${team.id}`}
+                className="group flex min-w-0 flex-1 items-center gap-3"
+              >
+                {team.logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={team.logo_url}
+                    alt=""
+                    className="size-10 shrink-0 rounded-full border object-cover"
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="flex size-10 shrink-0 items-center justify-center rounded-full border font-display"
+                    style={{
+                      backgroundColor: `${team.color ?? "#666"}26`,
+                      borderColor: `${team.color ?? "#666"}66`,
+                    }}
+                  >
+                    {team.name.slice(0, 1)}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium transition-colors group-hover:text-brand-amber">
+                    {team.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {[team.divisions?.name, seasonLabel(team.divisions?.seasons)]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  <span className="block text-[11px] font-medium text-brand-amber">
+                    Ver roster
+                  </span>
                 </span>
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{team.name}</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {[team.divisions?.name, seasonLabel(team.divisions?.seasons)]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </span>
+              </a>
               <span
                 className="size-4 shrink-0 rounded-full border"
                 style={{ backgroundColor: team.color ?? "#666" }}
@@ -150,13 +162,17 @@ export default async function EquiposPage({ searchParams }: PageProps) {
               />
               <a
                 href={`/admin/equipos?edit=${team.id}`}
-                className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
+                aria-label={`Editar ${team.name}`}
+                className="grid size-11 shrink-0 place-items-center rounded-lg border text-muted-foreground hover:bg-muted"
               >
-                Editar
+                <Pencil className="size-4" aria-hidden />
               </a>
               <form action={deleteTeam.bind(null, team.id)}>
-                <ConfirmButton message={`¿Eliminar al equipo "${team.name}"?`}>
-                  Eliminar
+                <ConfirmButton
+                  message={`¿Eliminar al equipo "${team.name}"?`}
+                  ariaLabel={`Eliminar ${team.name}`}
+                >
+                  <Trash2 className="size-4" aria-hidden />
                 </ConfirmButton>
               </form>
             </li>

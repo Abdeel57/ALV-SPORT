@@ -4,13 +4,17 @@
 export function ConfirmButton({
   children,
   message,
+  ariaLabel,
 }: {
   children: React.ReactNode;
   message: string;
+  /** Para botones de solo ícono. */
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="submit"
+      aria-label={ariaLabel}
       onClick={(event) => {
         if (!window.confirm(message)) event.preventDefault();
       }}

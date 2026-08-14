@@ -35,19 +35,28 @@ interface PlayerRow {
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string; q?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; q?: string; team?: string }>;
 }
 
 export default async function JugadoresPage({ searchParams }: PageProps) {
-  const { ok, error, q = "" } = await searchParams;
+  const { ok, error, q = "", team = "" } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
 
+  // Con ?team= la lista se vuelve el roster de ese equipo (desde la tarjeta
+  // del equipo en /admin/equipos); el !inner descarta a quienes no están.
   let playersQuery = context.supabase
     .from("players")
-    .select("id, first_name, last_name, photo_url, rosters(id, jersey_number, teams(name))")
+    .select(
+      team
+        ? "id, first_name, last_name, photo_url, rosters!inner(id, jersey_number, team_id, teams(name))"
+        : "id, first_name, last_name, photo_url, rosters(id, jersey_number, teams(name))",
+    )
     .order("last_name")
     .limit(50);
+  if (team) {
+    playersQuery = playersQuery.eq("rosters.team_id", team);
+  }
   if (q.trim().length >= 2) {
     playersQuery = playersQuery.or(
       `first_name.ilike.%${q.trim()}%,last_name.ilike.%${q.trim()}%`,
@@ -59,6 +68,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
   ]);
   const players = (playerRows ?? []) as unknown as PlayerRow[];
   const teams = (teamRows ?? []) as { id: string; name: string }[];
+  const rosterTeam = team ? teams.find((row) => row.id === team) : undefined;
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
@@ -97,7 +107,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
         <form action={bulkAssignRoster} className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Field label="Equipo">
-              <select name="teamId" required defaultValue="" className={inputClass}>
+              <select name="teamId" required defaultValue={team || ""} className={inputClass}>
                 <option value="" disabled>
                   Selecciona
                 </option>
@@ -146,7 +156,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
             </select>
           </Field>
           <Field label="Equipo">
-            <select name="teamId" required defaultValue="" className={inputClass}>
+            <select name="teamId" required defaultValue={team || ""} className={inputClass}>
               <option value="" disabled>
                 Selecciona
               </option>
@@ -176,19 +186,38 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
       </section>
 
       <section className="flex flex-col gap-3">
+        {rosterTeam && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-amber/40 bg-secondary/50 px-4 py-3">
+            <p className="text-sm">
+              <span className="text-muted-foreground">Roster de </span>
+              <span className="font-display text-base">{rosterTeam.name}</span>
+              <span className="text-muted-foreground"> · {players.length} jugador{players.length === 1 ? "" : "es"}</span>
+            </p>
+            <a
+              href="/admin/jugadores"
+              className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
+            >
+              Ver todos
+            </a>
+          </div>
+        )}
         <form className="flex gap-2" action="/admin/jugadores">
+          {team && <input type="hidden" name="team" value={team} />}
           <input
             type="search"
             name="q"
             defaultValue={q}
-            placeholder="Buscar jugador…"
+            placeholder={rosterTeam ? `Buscar en ${rosterTeam.name}…` : "Buscar jugador…"}
             className={`${inputClass} max-w-72`}
           />
           <SubmitButton>Buscar</SubmitButton>
         </form>
 
         {players.length === 0 ? (
-          <EmptyRow>Sin jugadores{q ? ` para “${q}”` : ""}.</EmptyRow>
+          <EmptyRow>
+            Sin jugadores{q ? ` para “${q}”` : ""}
+            {rosterTeam ? ` en el roster de ${rosterTeam.name}` : ""}.
+          </EmptyRow>
         ) : (
           <ul className="flex flex-col gap-2">
             {players.map((player) => (

@@ -1,4 +1,4 @@
-import { Plus, Sparkles, TriangleAlert } from "lucide-react";
+import { ChevronDown, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/admin/confirm-button";
@@ -251,10 +251,22 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 rounded-xl bg-secondary/50 p-3">
-                  <p className="text-xs tracking-widest text-muted-foreground uppercase">
+                {/* Plegado por defecto: en móvil este bloque ocupaba media
+                    pantalla por juego; el resumen ya dice cuántos hay. */}
+                <details className="group rounded-xl bg-secondary/50">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-xs tracking-widest text-muted-foreground uppercase select-none [&::-webkit-details-marker]:hidden">
                     Mesa y umpires
-                  </p>
+                    <span className="tracking-normal normal-case">
+                      {game.game_assignments.length > 0
+                        ? `· ${game.game_assignments.length}`
+                        : "· sin asignar"}
+                    </span>
+                    <ChevronDown
+                      className="ml-auto size-4 transition-transform group-open:rotate-180"
+                      aria-hidden
+                    />
+                  </summary>
+                  <div className="flex flex-col gap-2 px-3 pb-3">
                   {game.game_assignments.length > 0 && (
                     <ul className="flex flex-wrap gap-2">
                       {game.game_assignments.map((assignment) => (
@@ -291,7 +303,8 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                     </select>
                     <GhostButton>Asignar</GhostButton>
                   </form>
-                </div>
+                  </div>
+                </details>
               </li>
             );
           })}
