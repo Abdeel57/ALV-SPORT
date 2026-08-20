@@ -26,6 +26,7 @@ import {
   type SeedGame,
 } from "@/lib/seed-data";
 import { compareJerseyNumber } from "@/lib/utils";
+import { buildStatCategories } from "./stat-leaders";
 
 /**
  * Proveedor local: la experiencia pública completa calculada desde
@@ -173,6 +174,31 @@ function leagueTopPlayers(leagueSlug: string): TopPlayer[] {
     .slice(0, 4);
 }
 
+function leagueStatData(leagueSlug: string, limit = 10) {
+  const config = configByLeagueSlug.get(leagueSlug);
+  if (!config) return { categories: [], finalizedGames: 0, playersWithStats: 0 };
+  const games = seedGames.filter(
+    (game) =>
+      leagueSlugOfSeason(game.seasonId) === leagueSlug &&
+      game.status === "finalized",
+  );
+  const stats = computePlayerStats(
+    games.flatMap((game) => eventsByGameId.get(game.id) ?? []),
+    config,
+  );
+  const playerMeta = new Map(
+    [...stats.keys()].flatMap((playerId) => {
+      const team = teamRefById.get(rosterEntryByPlayer.get(playerId)?.teamId ?? "");
+      return team ? [[playerId, { name: playerName(playerId), team }] as const] : [];
+    }),
+  );
+  return {
+    categories: buildStatCategories(stats, config.playerStatDefs, playerMeta, limit),
+    finalizedGames: games.length,
+    playersWithStats: playerMeta.size,
+  };
+}
+
 function rosterOfTeam(teamId: string): LineupEntry[] {
   return seedRosters
     .filter((entry) => entry.teamId === teamId)
@@ -252,6 +278,13 @@ export const seedProvider: PublicDataProvider = {
       (leagueSlug ? leagueBySlug.get(leagueSlug) : undefined) ?? leagueInfos[0];
     if (!league) return null;
     return { league, rows: leagueStandings(league.slug) };
+  },
+
+  async getLeagueStats(leagueSlug) {
+    const league =
+      (leagueSlug ? leagueBySlug.get(leagueSlug) : undefined) ?? leagueInfos[0];
+    if (!league) return null;
+    return { league, ...leagueStatData(league.slug) };
   },
 
   async getTeamProfile(slug) {

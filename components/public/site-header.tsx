@@ -29,6 +29,12 @@ export function SiteHeader() {
           >
             Tabla
           </Link>
+          <Link
+            href="/estadisticas"
+            className="relative rounded-md px-3 py-2 text-muted-foreground transition-colors duration-200 after:absolute after:inset-x-3 after:bottom-0.5 after:h-0.5 after:origin-left after:scale-x-0 after:bg-brand-gradient after:transition-transform after:duration-200 hover:text-foreground hover:after:scale-x-100 motion-reduce:after:transition-none"
+          >
+            Estadísticas
+          </Link>
         </nav>
         <form action="/buscar" className="ml-auto w-full sm:w-auto" role="search">
           <label htmlFor="buscar-global" className="sr-only">

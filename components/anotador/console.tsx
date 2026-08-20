@@ -395,6 +395,20 @@ export function AnotadorConsole(props: ConsoleProps) {
     [sportConfig, selectedPlayerId, activeTeamId, battingTeamId, registerEvent],
   );
 
+  const handleQuickScore = useCallback(
+    (teamId: string, targetScore: number) => {
+      const pointEvent = sportConfig.eventTypes.find((eventType) => eventType.scoreDelta === 1);
+      if (!pointEvent || sportConfig.standings.winnerBy === "periods_won") return;
+      const currentScore = score.byTeam[teamId]?.total ?? 0;
+      const pointsToAdd = targetScore - currentScore;
+      if (!Number.isInteger(targetScore) || pointsToAdd < 0) return;
+      for (let index = 0; index < pointsToAdd; index += 1) {
+        registerEvent(pointEvent.key, { teamId, playerId: null });
+      }
+    },
+    [registerEvent, score.byTeam, sportConfig],
+  );
+
   const handleCorrect = useCallback(
     (eventId: string) => {
       const target = effective.find((event) => event.id === eventId);
@@ -598,6 +612,7 @@ export function AnotadorConsole(props: ConsoleProps) {
       selectedPlayerId={selectedPlayerId}
       onSelectPlayer={setSelectedPlayerId}
       onAction={handleAction}
+      onQuickScore={handleQuickScore}
       onUndo={handleUndo}
       onCorrect={handleCorrect}
       onClosePeriod={handleClosePeriod}

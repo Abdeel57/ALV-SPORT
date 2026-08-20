@@ -6,7 +6,6 @@ import type {
   SearchResults,
   StandingsRowView,
   TeamRef,
-  TopPlayer,
 } from "./types";
 import {
   computePlayerStats,
@@ -20,6 +19,7 @@ import {
 } from "@/lib/engine";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { compareJerseyNumber } from "@/lib/utils";
+import { buildStatCategories } from "./stat-leaders";
 
 /**
  * Proveedor respaldado por Supabase. El orden de standings reutiliza
@@ -268,6 +268,84 @@ async function fetchStandingsRows(
   }));
 }
 
+async function fetchLeagueStatData(
+  league: Awaited<ReturnType<typeof fetchLeagues>>[number],
+  games: GameRow[],
+) {
+  const finalized = games.filter((game) => game.status === "finalized");
+  const gameIds = finalized.map((game) => game.id);
+  if (gameIds.length === 0) {
+    return {
+      categories: buildStatCategories(
+        new Map(),
+        league.config.playerStatDefs,
+        new Map(),
+      ),
+      finalizedGames: 0,
+      playersWithStats: 0,
+    };
+  }
+
+  const supabase = await getSupabaseServerClient();
+  const { data: eventRows } = await supabase
+    .from("game_events")
+    .select(EVENT_SELECT)
+    .in("game_id", gameIds)
+    .order("seq");
+  const stats = computePlayerStats(
+    ((eventRows ?? []) as EventRow[]).map(mapEvent),
+    league.config,
+    { onUnknownEventType: "ignore" },
+  );
+  const playerIds = [...stats.keys()];
+  const teamIds = [
+    ...new Set(
+      finalized.flatMap((game) =>
+        [game.home?.id, game.away?.id].filter((id): id is string => Boolean(id)),
+      ),
+    ),
+  ];
+  const { data: rosterRows } =
+    playerIds.length > 0 && teamIds.length > 0
+      ? await supabase
+          .from("rosters")
+          .select(
+            "player_id, status, players(first_name,last_name), teams(id,name,slug,color,logo_url)",
+          )
+          .in("player_id", playerIds)
+          .in("team_id", teamIds)
+          .order("status", { ascending: true })
+      : { data: [] };
+
+  const playerMeta = new Map<
+    string,
+    { name: string; team: TeamRef }
+  >();
+  for (const row of (rosterRows ?? []) as unknown as Array<{
+    player_id: string;
+    status: string;
+    players: { first_name: string; last_name: string } | null;
+    teams: TeamRowRef | null;
+  }>) {
+    // El roster activo tiene prioridad si existen registros históricos.
+    if (playerMeta.has(row.player_id) && row.status !== "active") continue;
+    playerMeta.set(row.player_id, {
+      name: `${row.players?.first_name ?? "—"} ${row.players?.last_name ?? ""}`.trim(),
+      team: toTeamRef(row.teams),
+    });
+  }
+
+  return {
+    categories: buildStatCategories(
+      stats,
+      league.config.playerStatDefs,
+      playerMeta,
+    ),
+    finalizedGames: finalized.length,
+    playersWithStats: playerMeta.size,
+  };
+}
+
 export const supabaseProvider: PublicDataProvider = {
   isLive: true,
 
@@ -286,62 +364,7 @@ export const supabaseProvider: PublicDataProvider = {
       games.map((game) => toSummary(game, league.slug, league.config)),
     );
     const standings = await fetchStandingsRows(league, games);
-
-    const topPlayers: TopPlayer[] = [];
-    const headline = league.config.playerStatDefs[0];
-    if (headline) {
-      const supabase = await getSupabaseServerClient();
-      const finalizedIds = games
-        .filter((game) => game.status === "finalized")
-        .map((game) => game.id);
-      if (finalizedIds.length > 0) {
-        const { data: eventRows } = await supabase
-          .from("game_events")
-          .select(EVENT_SELECT)
-          .in("game_id", finalizedIds)
-          .order("seq");
-        const stats = computePlayerStats(
-          ((eventRows ?? []) as EventRow[]).map(mapEvent),
-          league.config,
-          { onUnknownEventType: "ignore" },
-        );
-        const playerIds = [...stats.keys()];
-        const { data: playerRows } = playerIds.length
-          ? await supabase
-              .from("players")
-              .select("id, first_name, last_name, rosters(team_id, teams(id,name,slug,color))")
-              .in("id", playerIds)
-          : { data: [] };
-        const meta = new Map(
-          ((playerRows ?? []) as unknown as Array<{
-            id: string;
-            first_name: string;
-            last_name: string;
-            rosters: { teams: TeamRowRef | null }[];
-          }>).map((row) => [
-            row.id,
-            {
-              name: `${row.first_name} ${row.last_name}`,
-              team: toTeamRef(row.rosters[0]?.teams ?? null),
-            },
-          ]),
-        );
-        topPlayers.push(
-          ...[...stats.entries()]
-            .map(([playerId, line]) => ({
-              playerId,
-              name: meta.get(playerId)?.name ?? "—",
-              team: meta.get(playerId)?.team ?? toTeamRef(null),
-              statKey: headline.key,
-              statLabel: headline.label,
-              value: line[headline.key] ?? 0,
-            }))
-            .filter((entry) => entry.value > 0)
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 4),
-        );
-      }
-    }
+    const statData = await fetchLeagueStatData(league, games);
 
     return {
       leagues: leagues.map(toLeagueInfo),
@@ -355,7 +378,7 @@ export const supabaseProvider: PublicDataProvider = {
         .reverse()
         .slice(0, 6),
       standingsTop: standings.slice(0, 5),
-      topPlayers,
+      topPlayers: statData.categories[0]?.leaders.slice(0, 4) ?? [],
     };
   },
 
@@ -440,6 +463,19 @@ export const supabaseProvider: PublicDataProvider = {
     return {
       league: toLeagueInfo(league),
       rows: await fetchStandingsRows(league, games),
+    };
+  },
+
+  async getLeagueStats(leagueSlug) {
+    const leagues = await fetchLeagues();
+    const league =
+      (leagueSlug ? leagues.find((item) => item.slug === leagueSlug) : undefined) ??
+      leagues[0];
+    if (!league) return null;
+    const games = await fetchSeasonGames(league.seasonId);
+    return {
+      league: toLeagueInfo(league),
+      ...(await fetchLeagueStatData(league, games)),
     };
   },
 

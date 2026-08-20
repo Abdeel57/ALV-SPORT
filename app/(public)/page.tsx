@@ -156,8 +156,9 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
         {data.topPlayers.length === 0 ? (
           <EmptyState>Los líderes aparecerán con los primeros juegos.</EmptyState>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.topPlayers.map((player, index) => (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {data.topPlayers.map((player, index) => (
               <Link
                 key={player.playerId}
                 href={`/jugador/${player.playerId}`}
@@ -191,8 +192,15 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
                   </span>
                 </span>
               </Link>
-            ))}
-          </div>
+              ))}
+            </div>
+            <Link
+              href={`/estadisticas?liga=${data.league.slug}`}
+              className="self-start text-sm text-brand-amber transition-transform duration-200 hover:translate-x-0.5"
+            >
+              Ver todas las estadísticas →
+            </Link>
+          </>
         )}
       </section>
     </main>

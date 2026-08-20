@@ -61,6 +61,24 @@ export interface TopPlayer {
   value: number;
 }
 
+export interface StatLeader extends TopPlayer {
+  /** Ranking de competencia: valores empatados comparten posición. */
+  rank: number;
+}
+
+export interface StatCategory {
+  key: string;
+  label: string;
+  leaders: StatLeader[];
+}
+
+export interface LeagueStatsView {
+  league: LeagueInfo;
+  categories: StatCategory[];
+  finalizedGames: number;
+  playersWithStats: number;
+}
+
 export interface HomeData {
   leagues: LeagueInfo[];
   league: LeagueInfo;
@@ -131,6 +149,7 @@ export interface PublicDataProvider {
   getHome(leagueSlug?: string): Promise<HomeData | null>;
   getGameDetail(gameId: string): Promise<GameDetail | null>;
   getStandings(leagueSlug?: string): Promise<StandingsView | null>;
+  getLeagueStats(leagueSlug?: string): Promise<LeagueStatsView | null>;
   getTeamProfile(slug: string): Promise<TeamProfile | null>;
   getPlayerProfile(playerId: string): Promise<PlayerProfile | null>;
   search(query: string): Promise<SearchResults>;

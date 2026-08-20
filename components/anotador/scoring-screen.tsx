@@ -17,6 +17,7 @@ interface ScoringScreenProps {
   selectedPlayerId: string | null;
   onSelectPlayer: (playerId: string | null) => void;
   onAction: (eventTypeKey: string) => void;
+  onQuickScore: (teamId: string, targetScore: number) => void;
   onUndo: () => void;
   onCorrect: (eventId: string) => void;
   onClosePeriod: () => void;
@@ -66,6 +67,7 @@ export function ScoringScreen(props: ScoringScreenProps) {
     selectedPlayerId,
     onSelectPlayer,
     onAction,
+    onQuickScore,
     onUndo,
     onCorrect,
     onClosePeriod,
@@ -82,6 +84,9 @@ export function ScoringScreen(props: ScoringScreenProps) {
   } = props;
 
   const [finalizeArmed, setFinalizeArmed] = useState(false);
+  const [quickMode, setQuickMode] = useState(false);
+  const [quickAwayScore, setQuickAwayScore] = useState(String(score.byTeam[awayTeam.id]?.total ?? 0));
+  const [quickHomeScore, setQuickHomeScore] = useState(String(score.byTeam[homeTeam.id]?.total ?? 0));
 
   const teams = useMemo(() => [awayTeam, homeTeam], [awayTeam, homeTeam]);
   const activeTeam = activeTeamId === homeTeam.id ? homeTeam : awayTeam;
@@ -122,6 +127,8 @@ export function ScoringScreen(props: ScoringScreenProps) {
   }${half ? (half === "top" ? " · Alta" : " · Baja") : ""}`;
 
   const lastFive = effective.slice(-5).reverse();
+  const quickScoreEnabled = config.standings.winnerBy !== "periods_won" &&
+    config.eventTypes.some((eventType) => eventType.scoreDelta === 1);
 
   return (
     <main className="flex min-h-dvh flex-col">
@@ -207,35 +214,91 @@ export function ScoringScreen(props: ScoringScreenProps) {
           </div>
         </section>
 
-        {/* Acciones (tap 2) + historial */}
+        {/* Acciones + historial */}
         <section className="flex flex-col gap-4">
-          <div
-            aria-label="Acciones"
-            className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4"
-          >
-            {/* Generados desde el config jsonb del deporte: cero hardcode. */}
-            {config.eventTypes.map((eventType) => {
-              const disabled = eventType.requiresPlayer && !selectedPlayerId;
-              return (
-                <Button
-                  key={eventType.key}
-                  variant={eventType.scoreDelta > 0 ? "default" : "secondary"}
-                  className="min-h-14 text-base"
-                  disabled={disabled || busy}
-                  onClick={() => onAction(eventType.key)}
-                >
-                  {eventType.label}
-                  {eventType.scoreDelta > 0 && (
-                    <span className="ml-1 tabular-nums">+{eventType.scoreDelta}</span>
-                  )}
-                </Button>
-              );
-            })}
-          </div>
-          {selectedPlayerId === null && (
-            <p className="text-sm text-muted-foreground">
-              Toca un jugador y después la acción (máximo 2 taps).
-            </p>
+          {quickScoreEnabled && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border bg-secondary/40 p-3">
+              <div>
+                <p className="font-medium">Captura rápida</p>
+                <p className="text-xs text-muted-foreground">
+                  Registra solo el marcador, sin estadísticas individuales.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={quickMode ? "default" : "outline"}
+                onClick={() => {
+                  setQuickMode((current) => !current);
+                  setQuickAwayScore(String(awayScore));
+                  setQuickHomeScore(String(homeScore));
+                  onSelectPlayer(null);
+                }}
+                disabled={busy}
+              >
+                {quickMode ? "Usar jugadas" : "Usar marcador"}
+              </Button>
+            </div>
+          )}
+
+          {quickMode ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { team: awayTeam, value: quickAwayScore, setValue: setQuickAwayScore, score: awayScore },
+                { team: homeTeam, value: quickHomeScore, setValue: setQuickHomeScore, score: homeScore },
+              ].map(({ team, value, setValue, score: currentScore }) => (
+                <label key={team.id} className="rounded-xl border p-4">
+                  <span className="block truncate text-sm text-muted-foreground">{team.name}</span>
+                  <input
+                    type="number"
+                    min={currentScore}
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    className="mt-1 w-full bg-transparent font-display text-5xl tabular-nums outline-none"
+                    aria-label={`Marcador de ${team.name}`}
+                  />
+                  <Button
+                    type="button"
+                    className="mt-3 min-h-12 w-full"
+                    disabled={busy || Number(value) < currentScore || !Number.isInteger(Number(value))}
+                    onClick={() => onQuickScore(team.id, Number(value))}
+                  >
+                    Aplicar marcador
+                  </Button>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div
+                aria-label="Acciones"
+                className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4"
+              >
+                {/* Generados desde el config jsonb del deporte: cero hardcode. */}
+                {config.eventTypes.map((eventType) => {
+                  const disabled = eventType.requiresPlayer && !selectedPlayerId;
+                  return (
+                    <Button
+                      key={eventType.key}
+                      variant={eventType.scoreDelta > 0 ? "default" : "secondary"}
+                      className="min-h-14 text-base"
+                      disabled={disabled || busy}
+                      onClick={() => onAction(eventType.key)}
+                    >
+                      {eventType.label}
+                      {eventType.scoreDelta > 0 && (
+                        <span className="ml-1 tabular-nums">+{eventType.scoreDelta}</span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+              {selectedPlayerId === null && (
+                <p className="text-sm text-muted-foreground">
+                  Toca un jugador y después la acción (máximo 2 taps).
+                </p>
+              )}
+            </>
           )}
 
           <div className="mt-auto flex flex-col gap-3">
