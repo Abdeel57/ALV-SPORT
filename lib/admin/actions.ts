@@ -20,6 +20,7 @@ import {
   rosterAssignSchema,
   rosterBulkSchema,
   sanctionSchema,
+  finalScoreSchema,
   scheduleConfigSchema,
   seasonSchema,
   sponsorSchema,
@@ -27,7 +28,7 @@ import {
   venueSchema,
 } from "./schemas";
 import { parseRosterList } from "./roster-list";
-import { assignSlots, generateRoundRobin } from "@/lib/engine";
+import { assignSlots, generateRoundRobin, sportConfigSchema } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
 import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
 
@@ -589,6 +590,112 @@ export async function createGame(formData: FormData): Promise<void> {
     status: "scheduled",
   });
   if (error) fail(SCHEDULE, error.message);
+  done(SCHEDULE);
+}
+
+/**
+ * Resultado final directo desde el calendario: sin alineaciones ni mesa.
+ * Respeta la arquitectura — inserta eventos de anotación (delta +1) hasta el
+ * marcador objetivo y cierra con finalize_game(), que DERIVA el marcador de
+ * los eventos; nunca se escribe un total a mano.
+ */
+export async function submitFinalScore(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(finalScoreSchema, formData, SCHEDULE);
+
+  const { data: gameData } = await context.supabase
+    .from("games")
+    .select("id, status, season_id, home_team_id, away_team_id")
+    .eq("id", data.gameId)
+    .maybeSingle();
+  const game = gameData as {
+    id: string;
+    status: string;
+    season_id: string;
+    home_team_id: string;
+    away_team_id: string;
+  } | null;
+  if (!game) fail(SCHEDULE, "El partido no existe");
+  if (game.status === "finalized" || game.status === "canceled") {
+    fail(
+      SCHEDULE,
+      game.status === "canceled"
+        ? "El partido está cancelado"
+        : "El partido ya está finalizado",
+    );
+  }
+
+  const { data: seasonData } = await context.supabase
+    .from("seasons")
+    .select("leagues(sports(config))")
+    .eq("id", game.season_id)
+    .single();
+  const rawConfig = (
+    seasonData as {
+      leagues: { sports: { config: unknown } | null } | null;
+    } | null
+  )?.leagues?.sports?.config;
+  const config = sportConfigSchema.parse(rawConfig);
+  const pointEvent = config.eventTypes.find(
+    (eventType) => eventType.scoreDelta === 1,
+  );
+  if (!pointEvent || config.standings.winnerBy === "periods_won") {
+    fail(SCHEDULE, "Este deporte se define por sets: usa la mesa de anotación");
+  }
+
+  // Totales actuales DERIVADOS (respetan correcciones): el resultado directo
+  // solo puede agregar anotaciones sobre lo ya capturado en la mesa.
+  const { data: scoreRows } = await context.supabase
+    .from("game_team_scores")
+    .select("team_id, score")
+    .eq("game_id", game.id);
+  const current = new Map(
+    ((scoreRows ?? []) as { team_id: string; score: number }[]).map((row) => [
+      row.team_id,
+      row.score,
+    ]),
+  );
+  const targets = [
+    { teamId: game.away_team_id, target: data.awayScore },
+    { teamId: game.home_team_id, target: data.homeScore },
+  ];
+  for (const { teamId, target } of targets) {
+    if (target < (current.get(teamId) ?? 0)) {
+      fail(
+        SCHEDULE,
+        "El marcador no puede ser menor a lo ya anotado en la mesa",
+      );
+    }
+  }
+
+  if (game.status === "scheduled") {
+    const { error } = await context.supabase.rpc("start_game", {
+      p_game: game.id,
+    });
+    if (error) fail(SCHEDULE, error.message);
+  }
+
+  const rows = targets.flatMap(({ teamId, target }) =>
+    Array.from({ length: target - (current.get(teamId) ?? 0) }, () => ({
+      game_id: game.id,
+      team_id: teamId,
+      player_id: null,
+      event_type: pointEvent.key,
+      payload: {},
+      period: 1,
+      created_by: context.userId,
+    })),
+  );
+  if (rows.length > 0) {
+    const { error } = await context.supabase.from("game_events").insert(rows);
+    if (error) fail(SCHEDULE, error.message);
+  }
+
+  const { error: finalizeError } = await context.supabase.rpc(
+    "finalize_game",
+    { p_game: game.id },
+  );
+  if (finalizeError) fail(SCHEDULE, finalizeError.message);
   done(SCHEDULE);
 }
 

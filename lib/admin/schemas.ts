@@ -222,6 +222,21 @@ export const scheduleConfigSchema = z.object({
   include: z.preprocess(asArray, z.array(z.coerce.number().int().min(0)).optional()),
 });
 
+/** Resultado final directo desde el calendario (sin mesa ni alineaciones). */
+export const finalScoreSchema = z.object({
+  gameId: z.uuid(),
+  awayScore: z.coerce
+    .number({ message: "Marcador inválido" })
+    .int("Marcador inválido")
+    .min(0, "Marcador inválido")
+    .max(199, "Marcador inválido"),
+  homeScore: z.coerce
+    .number({ message: "Marcador inválido" })
+    .int("Marcador inválido")
+    .min(0, "Marcador inválido")
+    .max(199, "Marcador inválido"),
+});
+
 /** Convierte FormData a objeto plano (múltiples valores → array). */
 export function formDataToObject(formData: FormData): Record<string, unknown> {
   const result: Record<string, unknown> = {};

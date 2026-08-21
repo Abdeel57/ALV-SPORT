@@ -16,6 +16,7 @@ import {
   createGame,
   deleteGame,
   removeAssignment,
+  submitFinalScore,
   updateGame,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
@@ -249,6 +250,68 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                       </form>
                     )}
                   </div>
+                )}
+
+                {/* Resultado directo: lo que pide la liga para cerrar la
+                    jornada sin pasar por alineaciones ni mesa. */}
+                {game.status !== "canceled" && (
+                  <details className="group rounded-xl border border-brand-amber/30 bg-secondary/50">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium tracking-widest text-brand-amber uppercase select-none [&::-webkit-details-marker]:hidden">
+                      Dar resultado
+                      <span className="font-normal tracking-normal text-muted-foreground normal-case">
+                        · directo, sin alineaciones
+                      </span>
+                      <ChevronDown
+                        className="ml-auto size-4 transition-transform group-open:rotate-180"
+                        aria-hidden
+                      />
+                    </summary>
+                    <form
+                      action={submitFinalScore}
+                      className="flex flex-wrap items-end gap-3 px-3 pb-2"
+                    >
+                      <input type="hidden" name="gameId" value={game.id} />
+                      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                        <span className="max-w-28 truncate">
+                          {game.away?.name ?? "Visita"}
+                        </span>
+                        <input
+                          name="awayScore"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={199}
+                          required
+                          placeholder="0"
+                          className={`${inputClass} w-24 text-center font-display text-lg tabular-nums`}
+                        />
+                      </label>
+                      <span aria-hidden className="pb-3 text-muted-foreground">
+                        —
+                      </span>
+                      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                        <span className="max-w-28 truncate">
+                          {game.home?.name ?? "Local"}
+                        </span>
+                        <input
+                          name="homeScore"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={199}
+                          required
+                          placeholder="0"
+                          className={`${inputClass} w-24 text-center font-display text-lg tabular-nums`}
+                        />
+                      </label>
+                      <GhostButton>Guardar y finalizar</GhostButton>
+                    </form>
+                    <p className="px-3 pb-3 text-xs text-muted-foreground">
+                      Registra las anotaciones, finaliza el partido y actualiza
+                      la tabla. Para estadísticas por jugador usa la mesa
+                      (&quot;Anotar&quot;).
+                    </p>
+                  </details>
                 )}
 
                 {/* Plegado por defecto: en móvil este bloque ocupaba media
