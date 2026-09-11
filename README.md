@@ -120,6 +120,12 @@ Solo hacen falta **la app** ([Dockerfile](Dockerfile) + [railway.json](railway.j
 
 > Para consultar la base a mano usa DBeaver, TablePlus o `psql` contra el proxy TCP.
 
+## Migración desde Supabase
+
+El proyecto vivió sobre Supabase autoalojado (9 servicios en Railway) hasta
+septiembre de 2026. Los pasos de corte, qué verificar y cómo volver atrás
+están en [MIGRACION.md](MIGRACION.md).
+
 ## Operaciones y calidad
 
 Cada push/PR a `main` corre la compuerta completa en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): typecheck, lint, pruebas del motor, build y verificación de seed determinista. Para respaldos, observabilidad de errores, auditoría de seguridad, migraciones y rollback, ver el runbook [OPERACIONES.md](OPERACIONES.md).
