@@ -154,7 +154,7 @@ export default async function AdminDashboard() {
 
       <section aria-labelledby="hoy" className="flex flex-col gap-3">
         <SectionHeading count={games.length}>
-          <span id="hoy">Partidos de hoy</span>
+          <span id="hoy">Hoy y en curso</span>
         </SectionHeading>
         {games.length === 0 ? (
           <EmptyRow>No hay partidos programados para hoy.</EmptyRow>
@@ -162,6 +162,7 @@ export default async function AdminDashboard() {
           <ul className="flex flex-col gap-2">
             {games.map((game) => {
               const live = game.status === "in_progress";
+              const stale = live && new Date(game.scheduled_at) < dayStart;
               return (
                 <li key={game.id}>
                   <Link
@@ -170,8 +171,15 @@ export default async function AdminDashboard() {
                   >
                     <span className="flex min-w-0 items-center gap-2.5">
                       {live && <span className="live-dot size-2 shrink-0" aria-hidden />}
-                      <span className="truncate">
-                        {game.home?.name ?? "Equipo 1"} vs {game.away?.name ?? "Equipo 2"}
+                      <span className="min-w-0">
+                        <span className="block truncate">
+                          {game.home?.name ?? "Equipo 1"} vs {game.away?.name ?? "Equipo 2"}
+                        </span>
+                        {stale && (
+                          <span className="block truncate text-[11px] text-brand-amber">
+                            Abierto desde el {dateFormat.format(new Date(game.scheduled_at))} · ciérralo con &quot;Dar resultado&quot;
+                          </span>
+                        )}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2.5 text-muted-foreground">

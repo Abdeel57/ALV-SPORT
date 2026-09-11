@@ -109,6 +109,9 @@ export default async function JugadorPage({ params }: PageProps) {
   }
 
   const headline = profile.statDefs[0];
+  const seasonTitle = /^temporada/i.test(profile.league.seasonName)
+    ? profile.league.seasonName
+    : `Temporada ${profile.league.seasonName}`;
   const chartValues = profile.perGame.map(
     (line) => line.statLine[headline?.key ?? ""] ?? 0,
   );
@@ -152,7 +155,7 @@ export default async function JugadorPage({ params }: PageProps) {
       </section>
 
       <section className="flex flex-col gap-3">
-        <SectionTitle>Temporada {profile.league.seasonName}</SectionTitle>
+        <SectionTitle>{seasonTitle}</SectionTitle>
         {profile.perGame.length === 0 ? (
           <EmptyState>Este jugador aún no registra participación.</EmptyState>
         ) : (

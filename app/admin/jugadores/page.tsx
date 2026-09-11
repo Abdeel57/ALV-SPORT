@@ -68,7 +68,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
   const where = filters.length > 0 ? join(filters, " and ") : sql`true`;
   const rosterFilter = team ? sql`and r.team_id = ${team}` : empty;
 
-  const [players, totalRow, teamRows] = await Promise.all([
+  const [players, totalRow, teamRows, duplicateRows] = await Promise.all([
     context.db.rows<PlayerRow>(sql`
       select p.id, p.first_name, p.last_name, p.photo_url,
              coalesce((
@@ -98,7 +98,16 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
         left join public.leagues l on l.id = se.league_id
        order by l.name nulls last, t.name
     `),
+    context.db.rows<{ first_name: string; last_name: string; n: number }>(sql`
+      select first_name, last_name, count(*)::int as n
+        from public.players
+       group by lower(first_name), lower(last_name), first_name, last_name
+      having count(*) > 1
+       order by n desc, last_name
+       limit 12
+    `),
   ]);
+  const duplicates = duplicateRows.map((row) => `${row.first_name} ${row.last_name}`);
   const teams: TeamChoice[] = teamRows.map((row) => ({ id: row.id, name: row.name, category: row.category ?? "Sin categoría" }));
   const rosterTeam = team ? teams.find((row) => row.id === team) : undefined;
   const total = totalRow.total;
@@ -113,6 +122,15 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
         Jugadores
       </AdminTitle>
       <Feedback ok={ok} error={error} />
+      {duplicates.length > 0 && !team && !search && (
+        <p className="rounded-lg border border-brand-amber/40 bg-brand-amber/5 px-4 py-3 text-sm">
+          <span className="font-semibold text-brand-amber">
+            {duplicates.length} nombre{duplicates.length === 1 ? "" : "s"} repetido{duplicates.length === 1 ? "" : "s"}:
+          </span>{" "}
+          {duplicates.slice(0, 6).join(", ")}
+          {duplicates.length > 6 ? "…" : ""}. Busca cada uno y elimina el registro que sobra.
+        </p>
+      )}
 
       <FormPanel title="Nuevo jugador" open={nuevo === "1"}>
         <form action={savePlayer} className="grid gap-3 sm:grid-cols-2">

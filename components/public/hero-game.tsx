@@ -85,8 +85,8 @@ export function HeroGame({
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-2 sm:gap-6">
-          <span className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-6">
+          <span className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center sm:flex-row sm:gap-3 sm:text-left">
             <TeamBadge
               name={away.name}
               color={away.color}
@@ -94,13 +94,13 @@ export function HeroGame({
               glow
               className="size-12 text-xl sm:size-16 sm:text-3xl"
             />
-            <span className="font-display truncate text-xl leading-tight sm:text-3xl">
+            <span className="font-display line-clamp-2 text-sm leading-tight sm:line-clamp-none sm:truncate sm:text-3xl">
               {away.name}
             </span>
           </span>
 
           {isLive || isFinal ? (
-            <span className="font-display flex shrink-0 items-baseline gap-2 text-5xl tabular-nums sm:gap-3 sm:text-7xl">
+            <span className="font-display flex shrink-0 items-baseline gap-2 pt-1 text-5xl tabular-nums sm:gap-3 sm:pt-0 sm:text-7xl">
               <span>{game.awayScore ?? 0}</span>
               <span className="text-xl text-muted-foreground sm:text-3xl">–</span>
               <span>{game.homeScore ?? 0}</span>
@@ -114,7 +114,7 @@ export function HeroGame({
             </span>
           )}
 
-          <span className="flex min-w-0 flex-1 flex-row-reverse items-center gap-3 text-right">
+          <span className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center sm:flex-row-reverse sm:gap-3 sm:text-right">
             <TeamBadge
               name={home.name}
               color={home.color}
@@ -122,7 +122,7 @@ export function HeroGame({
               glow
               className="size-12 text-xl sm:size-16 sm:text-3xl"
             />
-            <span className="font-display truncate text-xl leading-tight sm:text-3xl">
+            <span className="font-display line-clamp-2 text-sm leading-tight sm:line-clamp-none sm:truncate sm:text-3xl">
               {home.name}
             </span>
           </span>

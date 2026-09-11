@@ -585,9 +585,10 @@ export const postgresProvider: PublicDataProvider = {
       name: string;
       slug: string;
       color: string | null;
+      logo_url: string | null;
       season_id: string | null;
     }>(sql`
-      select t.id, t.name, t.slug, t.color, d.season_id
+      select t.id, t.name, t.slug, t.color, t.logo_url, d.season_id
         from public.teams t
         left join public.divisions d on d.id = t.division_id
        where t.slug = ${slug}
@@ -644,7 +645,7 @@ export const postgresProvider: PublicDataProvider = {
       });
 
     return {
-      team: { id: team.id, name: team.name, slug: team.slug, color: team.color },
+      team: { id: team.id, name: team.name, slug: team.slug, color: team.color, logoUrl: team.logo_url },
       league: toLeagueInfo(league),
       standing: standings.find((row) => row.teamId === team.id) ?? null,
       roster,

@@ -1,42 +1,18 @@
 import Image from "next/image";
 
 /**
- * Crédito de desarrollo: "Sitio desarrollado por Bismark". Bloque centrado al
- * pie del sitio público. Usa el logo oficial de Bismark
- * (public/brand/bismark-logo.png); se invierte a blanco con `invert` para
- * contrastar sobre el footer oscuro sin depender de una segunda variante.
+ * Crédito de desarrollo en una sola línea discreta al pie: el protagonismo
+ * del pie es de la liga, no del desarrollador.
  */
 export function BismarkCredit() {
   return (
-    <section
-      aria-label="Desarrollado por Bismark"
-      className="border-t border-white/5"
-    >
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-4 py-10 text-center">
-        <div className="flex items-center gap-2.5 text-foreground">
-          <Image
-            src="/brand/bismark-logo.png"
-            alt="Bismark"
-            width={256}
-            height={256}
-            className="size-9 invert"
-          />
-          <span className="text-xl font-bold tracking-[0.18em] uppercase">
-            Bismark
-          </span>
-        </div>
-
-        <h2 className="text-lg font-bold text-foreground sm:text-xl">
-          Sitio desarrollado por Bismark
-        </h2>
-
-        <p className="max-w-sm text-sm text-muted-foreground">
-          ¿Quieres tu propia página como esta? Escríbenos.
-        </p>
-
-        <p className="text-[10px] font-medium tracking-[0.3em] text-muted-foreground/40 uppercase">
-          Impulsado por Bismark
-        </p>
+    <section aria-label="Desarrollado por Bismark" className="border-t border-white/5">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-4 text-center text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-foreground">
+          <Image src="/brand/bismark-logo.png" alt="" width={256} height={256} className="size-5 invert" />
+          <span className="font-semibold tracking-[0.14em] uppercase">Bismark</span>
+        </span>
+        <span>Sitio desarrollado por Bismark · ¿Quieres tu propia página? Escríbenos.</span>
       </div>
     </section>
   );

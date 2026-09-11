@@ -80,8 +80,8 @@ function TeamBlock({
   return (
     <Link
       href={`/equipo/${slug}`}
-      className={`group flex min-w-0 flex-1 items-center gap-3 ${
-        align === "right" ? "flex-row-reverse text-right" : ""
+      className={`group flex min-w-0 flex-1 flex-col items-center gap-2 text-center sm:flex-row sm:gap-3 sm:text-left ${
+        align === "right" ? "sm:flex-row-reverse sm:text-right" : ""
       }`}
     >
       <TeamBadge
@@ -91,7 +91,7 @@ function TeamBlock({
         glow
         className="size-12 text-xl transition-transform duration-200 motion-safe:group-hover:scale-105 sm:size-14 sm:text-2xl"
       />
-      <span className="truncate font-display text-lg leading-tight sm:text-2xl">
+      <span className="line-clamp-2 font-display text-sm leading-tight sm:line-clamp-none sm:truncate sm:text-2xl">
         {name}
       </span>
     </Link>
@@ -285,7 +285,7 @@ export function GameView({
               </button>
             </div>
           </div>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-3 sm:items-center">
             <TeamBlock
               name={game.away.name}
               slug={game.away.slug}

@@ -67,13 +67,40 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
         }
       />
 
-      {hero && (
+      {hero ? (
         <section aria-label="Partido destacado">
           <HeroGame
             game={hero}
             leagueName={data.league.name}
             seasonName={data.league.seasonName}
           />
+        </section>
+      ) : (
+        <section
+          aria-label="Liga"
+          className="card-elevated relative flex items-center gap-4 overflow-hidden rounded-2xl px-5 py-5 sm:px-7"
+          style={{
+            backgroundImage: `linear-gradient(120deg, ${data.league.color ?? "#F5A50B"}2e 0%, transparent 60%)`,
+          }}
+        >
+          <span className="bg-brand-gradient absolute inset-x-0 top-0 h-1 opacity-35" aria-hidden />
+          {data.league.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={data.league.logoUrl} alt="" className="size-16 shrink-0 rounded-full border border-white/10 bg-white/5 object-cover sm:size-20" />
+          ) : (
+            <span
+              aria-hidden
+              className="font-display grid size-16 shrink-0 place-items-center rounded-full border text-3xl sm:size-20"
+              style={{ color: data.league.color ?? "var(--brand-amber)", borderColor: `${data.league.color ?? "#F5A50B"}66` }}
+            >
+              {data.league.name.trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase">{data.league.sportName}</p>
+            <h2 className="font-display text-2xl leading-tight sm:text-3xl">{data.league.name}</h2>
+            <p className="text-sm text-muted-foreground">{data.league.seasonName}</p>
+          </div>
         </section>
       )}
 
@@ -97,7 +124,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
           <span id="proximos">Próximos partidos</span>
         </SectionTitle>
         {upcomingRest.length === 0 ? (
-          <EmptyState>No hay más partidos programados por ahora.</EmptyState>
+          <p className="text-sm text-muted-foreground">Sin partidos programados por ahora.</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {upcomingRest.map((game) => (
@@ -107,39 +134,33 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
         )}
       </section>
 
-      <section aria-labelledby="resultados" className="flex flex-col gap-3.5">
-        <SectionTitle>
-          <span id="resultados">Resultados recientes</span>
-        </SectionTitle>
-        {resultsRest.length === 0 ? (
-          <EmptyState>Todavía no hay resultados en esta temporada.</EmptyState>
-        ) : (
+      {resultsRest.length > 0 && (
+        <section aria-labelledby="resultados" className="flex flex-col gap-3.5">
+          <SectionTitle>
+            <span id="resultados">Resultados recientes</span>
+          </SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {resultsRest.map((game) => (
               <GameCard key={game.id} game={game} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section aria-labelledby="tabla" className="flex flex-col gap-3.5">
-        <SectionTitle>
-          <span id="tabla">Tabla general</span>
-        </SectionTitle>
-        {data.standingsTop.length === 0 ? (
-          <EmptyState>La tabla aparecerá cuando haya juegos finalizados.</EmptyState>
-        ) : (
-          <>
-            <StandingsTable rows={data.standingsTop} compact rankBy={data.league.rankBy} />
-            <Link
-              href={`/tabla?liga=${data.league.slug}`}
-              className="self-start text-sm text-brand-amber transition-transform duration-200 hover:translate-x-0.5"
-            >
-              Ver tabla completa →
-            </Link>
-          </>
-        )}
-      </section>
+      {data.standingsTop.length > 0 && (
+        <section aria-labelledby="tabla" className="flex flex-col gap-3.5">
+          <SectionTitle>
+            <span id="tabla">Tabla general</span>
+          </SectionTitle>
+          <StandingsTable rows={data.standingsTop} compact rankBy={data.league.rankBy} />
+          <Link
+            href={`/tabla?liga=${data.league.slug}`}
+            className="self-start text-sm text-brand-amber transition-transform duration-200 hover:translate-x-0.5"
+          >
+            Ver tabla completa →
+          </Link>
+        </section>
+      )}
 
       <Suspense fallback={null}>
         <HomeNews />
@@ -149,6 +170,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
         <HomeSponsors />
       </Suspense>
 
+      {data.topPlayers.length > 0 && (
       <section aria-labelledby="destacados" className="flex flex-col gap-3.5">
         <SectionTitle>
           <span id="destacados">Jugadores destacados</span>
@@ -203,6 +225,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
           </>
         )}
       </section>
+      )}
     </main>
   );
 }

@@ -3,6 +3,8 @@ import Link from "next/link";
 import { EmptyState, SectionTitle } from "@/components/public/bits";
 import { FollowTeam } from "@/components/public/follow-team";
 import { GameCard } from "@/components/public/game-card";
+import { TeamBadge } from "@/components/public/team-badge";
+import { InitialsAvatar } from "@/components/public/team-initials";
 import { ImportedStatsTable } from "@/components/public/imported-stats";
 import { Badge } from "@/components/ui/badge";
 import { getPublicData } from "@/lib/data";
@@ -67,17 +69,7 @@ export default async function EquipoPage({ params }: PageProps) {
           className="absolute -top-16 -left-16 size-48 rounded-full blur-3xl"
           style={{ backgroundColor: `${team.color ?? "#666"}1f` }}
         />
-        <span
-          aria-hidden
-          className="relative flex size-16 items-center justify-center rounded-full border font-display text-3xl"
-          style={{
-            backgroundColor: `${team.color ?? "#666"}26`,
-            borderColor: `${team.color ?? "#666"}66`,
-            boxShadow: `0 0 26px ${team.color ?? "#666"}33`,
-          }}
-        >
-          {team.name.slice(0, 1)}
-        </span>
+        <TeamBadge name={team.name} color={team.color} logoUrl={team.logoUrl} glow className="relative size-16 text-3xl" />
         <div className="flex min-w-0 flex-col gap-1">
           <h1 className="font-display text-3xl sm:text-4xl">{team.name}</h1>
           <p className="text-sm text-muted-foreground">
@@ -137,12 +129,16 @@ export default async function EquipoPage({ params }: PageProps) {
                   href={`/jugador/${player.playerId}`}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-muted"
                 >
-                  <span
-                    className="w-8 text-center font-display text-lg tabular-nums"
-                    style={{ color: team.color ?? undefined }}
-                  >
-                    {player.jerseyNumber ?? "—"}
-                  </span>
+                  {player.jerseyNumber ? (
+                    <span
+                      className="w-8 shrink-0 text-center font-display text-lg tabular-nums"
+                      style={{ color: team.color ?? undefined }}
+                    >
+                      {player.jerseyNumber}
+                    </span>
+                  ) : (
+                    <InitialsAvatar name={player.name} className="size-8 shrink-0 border text-[10px]" />
+                  )}
                   <span className="truncate">{player.name}</span>
                 </Link>
               </li>
