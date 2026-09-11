@@ -25,6 +25,7 @@ import {
   seasonSchema,
   sponsorSchema,
   teamSchema,
+  teamStatsImportSchema,
   venueSchema,
 } from "./schemas";
 import { parseRosterList } from "./roster-list";
@@ -33,6 +34,7 @@ import { MediaError, saveImage, type MediaBucket } from "@/lib/media/store";
 import { assignSlots, generateRoundRobin, sportConfigSchema } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
 import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
+import { StatsImportError, matchPlayers, parseStatsDocument, type ParsedStatsDocument } from "@/lib/stats-import";
 
 async function ctx(): Promise<AdminContext> {
   const context = await requireAdmin();
@@ -1182,4 +1184,112 @@ export async function rejectSignup(id: string): Promise<void> {
 
 export async function deleteSignup(id: string): Promise<void> {
   await deleteRow(await ctx(), "signup_requests", id, SIGNUPS);
+}
+
+/* ---------------------- Estadísticas importadas ----------------------- */
+
+const teamStatsPath = (teamId: string): string => `/admin/equipos/${teamId}/estadisticas`;
+
+/**
+ * Carga una tabla de otro programa (texto o HTML). Se interpreta en el
+ * servidor, se vinculan los nombres con la plantilla y se guarda en
+ * team_stat_imports; una tabla del mismo tipo se reemplaza. Nunca toca
+ * game_events ni las estadísticas derivadas.
+ */
+export async function importTeamStats(formData: FormData): Promise<void> {
+  const context = await ctx();
+  const data = parse(teamStatsImportSchema, formData, TEAMS);
+  const path = teamStatsPath(data.teamId);
+
+  const file = formData.get("document");
+  const pasted = String(formData.get("pasted") ?? "").trim();
+  let text: string;
+  let sourceName: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    if (file.size > 1_000_000) fail(path, "El archivo supera 1 MB.");
+    text = await file.text();
+    sourceName = file.name || null;
+  } else if (pasted) {
+    text = pasted;
+  } else {
+    fail(path, "Selecciona un archivo .txt o .html, o pega el contenido de la tabla.");
+  }
+
+  let parsed: ParsedStatsDocument;
+  try {
+    parsed = parseStatsDocument(text, { filename: sourceName ?? undefined });
+  } catch (error) {
+    fail(path, error instanceof StatsImportError ? error.message : "No se pudo interpretar el documento.");
+  }
+
+  const team = await run(path, () =>
+    context.db.maybeOne<{ id: string; slug: string }>(sql`
+      select id, slug from public.teams where id = ${data.teamId} limit 1
+    `),
+  );
+  if (!team) fail(TEAMS, "El equipo no existe.");
+
+  const roster = await run(path, () =>
+    context.db.rows<{ player_id: string; first_name: string | null; last_name: string | null }>(sql`
+      select r.player_id, p.first_name, p.last_name
+        from public.rosters r
+        join public.players p on p.id = r.player_id
+       where r.team_id = ${team.id}
+    `),
+  );
+  const matched = matchPlayers(
+    parsed.rows.map((row) => row.name),
+    roster.map((row) => ({ playerId: row.player_id, firstName: row.first_name ?? "", lastName: row.last_name ?? "" })),
+  );
+  const rows = parsed.rows.map((row, index) => ({
+    name: row.name,
+    playerId: matched[index] ?? null,
+    values: row.values,
+  }));
+  const linked = rows.filter((row) => row.playerId !== null).length;
+
+  await run(path, () =>
+    context.db.exec(sql`
+      insert into public.team_stat_imports
+        (organization_id, team_id, kind, title, source_name, source_format,
+         columns, rows, totals, player_count, raw_document, uploaded_by)
+      values
+        (${context.organizationId}, ${team.id}, ${parsed.kind}, ${parsed.title}, ${sourceName}, ${parsed.format},
+         ${JSON.stringify(parsed.columns)}::jsonb, ${JSON.stringify(rows)}::jsonb,
+         ${parsed.totals ? JSON.stringify(parsed.totals) : null}::jsonb, ${parsed.playerCount ?? rows.length},
+         ${text}, ${context.userId})
+      on conflict (team_id, kind) do update set
+        title = excluded.title,
+        source_name = excluded.source_name,
+        source_format = excluded.source_format,
+        columns = excluded.columns,
+        rows = excluded.rows,
+        totals = excluded.totals,
+        player_count = excluded.player_count,
+        raw_document = excluded.raw_document,
+        uploaded_by = excluded.uploaded_by
+    `),
+  );
+
+  revalidatePath(path);
+  revalidatePath(`/equipo/${team.slug}`);
+  const ignored = parsed.warnings.length;
+  const summary =
+    `Se cargó "${parsed.title}": ${rows.length} jugadores, ${linked} vinculados a la plantilla` +
+    (ignored > 0 ? `, ${ignored} línea${ignored === 1 ? "" : "s"} ignorada${ignored === 1 ? "" : "s"}` : "") +
+    ".";
+  redirect(`${path}?ok=${encodeURIComponent(summary)}`);
+}
+
+export async function deleteTeamStatImport(id: string, teamId: string): Promise<void> {
+  const context = await ctx();
+  const path = teamStatsPath(teamId);
+  const team = await run(path, () =>
+    context.db.maybeOne<{ slug: string }>(sql`select slug from public.teams where id = ${teamId} limit 1`),
+  );
+  await run(path, () =>
+    context.db.exec(sql`delete from public.team_stat_imports where id = ${id} and team_id = ${teamId}`),
+  );
+  if (team) revalidatePath(`/equipo/${team.slug}`);
+  done(path);
 }

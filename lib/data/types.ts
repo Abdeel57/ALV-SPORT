@@ -1,3 +1,6 @@
+import type { TeamStatImportView } from "@/lib/stats-import/view";
+
+export type { TeamStatImportView };
 import type {
   EngineGameEvent,
   GameStatus,
@@ -151,6 +154,8 @@ export interface PublicDataProvider {
   getStandings(leagueSlug?: string): Promise<StandingsView | null>;
   getLeagueStats(leagueSlug?: string): Promise<LeagueStatsView | null>;
   getTeamProfile(slug: string): Promise<TeamProfile | null>;
+  /** Tablas cargadas desde otro programa para el equipo (vacío si no hay). */
+  getTeamStatImports(teamId: string): Promise<TeamStatImportView[]>;
   getPlayerProfile(playerId: string): Promise<PlayerProfile | null>;
   search(query: string): Promise<SearchResults>;
 }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { EmptyState, SectionTitle } from "@/components/public/bits";
 import { FollowTeam } from "@/components/public/follow-team";
 import { GameCard } from "@/components/public/game-card";
+import { ImportedStatsTable } from "@/components/public/imported-stats";
 import { Badge } from "@/components/ui/badge";
 import { getPublicData } from "@/lib/data";
 
@@ -47,6 +48,7 @@ export default async function EquipoPage({ params }: PageProps) {
   }
 
   const { team, league, standing, roster, games, streak } = profile;
+  const statImports = await getPublicData().getTeamStatImports(team.id);
   const upcoming = games.filter((game) => game.status === "scheduled");
   const results = games.filter((game) => game.status !== "scheduled").reverse();
 
@@ -145,6 +147,15 @@ export default async function EquipoPage({ params }: PageProps) {
           </ul>
         )}
       </section>
+
+      {statImports.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <SectionTitle>Estadísticas del equipo</SectionTitle>
+          {statImports.map((data) => (
+            <ImportedStatsTable key={data.id} data={data} accentColor={team.color} />
+          ))}
+        </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <SectionTitle>Calendario</SectionTitle>

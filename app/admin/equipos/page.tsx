@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { ClipboardList, Pencil, Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import {
@@ -177,6 +177,14 @@ export default async function EquiposPage({ searchParams }: PageProps) {
                 style={{ backgroundColor: team.color ?? "#666" }}
                 aria-label={`Color ${team.color ?? "sin color"}`}
               />
+              <a
+                href={`/admin/equipos/${team.id}/estadisticas`}
+                aria-label={`Estadísticas de ${team.name}`}
+                title="Estadísticas importadas"
+                className="grid size-11 shrink-0 place-items-center rounded-lg border text-muted-foreground hover:bg-muted"
+              >
+                <ClipboardList className="size-4" aria-hidden />
+              </a>
               <a
                 href={`/admin/equipos?edit=${team.id}`}
                 aria-label={`Editar ${team.name}`}

@@ -1,3 +1,4 @@
+import { toStatImportView, type TeamStatImportView } from "@/lib/stats-import/view";
 import type {
   GameSummary,
   LeagueInfo,
@@ -645,6 +646,17 @@ export const postgresProvider: PublicDataProvider = {
       games: summaries,
       streak,
     };
+  },
+
+  async getTeamStatImports(teamId) {
+    const db = await getDb();
+    const rows = await db.rows<Record<string, unknown>>(sql`
+      select id, kind, title, source_name, columns, rows, totals, player_count, updated_at
+        from public.team_stat_imports
+       where team_id = ${teamId}
+       order by case kind when 'batting' then 0 when 'pitching' then 1 when 'fielding' then 2 else 3 end, title
+    `);
+    return rows.map(toStatImportView).filter((view): view is TeamStatImportView => view !== null);
   },
 
   async getPlayerProfile(playerId) {

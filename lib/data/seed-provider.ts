@@ -326,6 +326,10 @@ export const seedProvider: PublicDataProvider = {
     };
   },
 
+  async getTeamStatImports() {
+    return [];
+  },
+
   async getPlayerProfile(playerId) {
     const player = playerById.get(playerId);
     const rosterEntry = rosterEntryByPlayer.get(playerId);

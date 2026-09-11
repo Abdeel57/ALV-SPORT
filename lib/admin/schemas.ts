@@ -248,3 +248,8 @@ export function formDataToObject(formData: FormData): Record<string, unknown> {
   }
   return result;
 }
+
+/** Carga de estadísticas externas por equipo (el archivo viaja aparte en el FormData). */
+export const teamStatsImportSchema = z.object({
+  teamId: z.uuid("Equipo inválido"),
+});
