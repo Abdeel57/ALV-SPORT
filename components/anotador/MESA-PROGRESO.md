@@ -68,8 +68,8 @@ trabajo entre sesiones sin perder decisiones.
 - [x] 1. Motor de libreta + pruebas de escenarios (21 escenarios en
       `lib/engine/scorebook/__tests__`).
 - [x] 2. Config de softbol ampliada + migración
-      (`supabase/migrations/20260910002300_scorebook.sql`). **Pendiente de
-      aplicar en producción** (la sesión no pudo ejecutarla; ver "Despliegue").
+      (`supabase/migrations/20260910002300_scorebook.sql`), aplicada en
+      producción el 2026-09-10.
 - [x] 3. Recorrido integrado: alineación → iniciar → jugada → celda →
       marcador → estadísticas (`components/anotador/console.tsx`).
 - [x] 4. Catálogos completos, corredores, sustituciones, correcciones
@@ -83,15 +83,14 @@ trabajo entre sesiones sin perder decisiones.
 
 ## Despliegue
 
-1. Aplicar la migración en producción (respaldo previo ya tomado:
-   `backups/alvsport-20260910-223716.json`):
-   `DATABASE_URL="<url pública de Railway>" pnpm db:migrate`
-2. Publicar: `railway up --service app --detach`.
-3. Verificar `/anotador/<gameId>` con un partido programado.
+Hecho el 2026-09-10: respaldo (`backups/alvsport-20260910-223716.json`),
+migración aplicada con `pnpm db:migrate`, publicación con
+`railway up --service app --detach` (deployment 6f460113, SUCCESS) y
+verificación de `/`, `/anotador/demo` y un `/partido/<id>` en alvsport.com.
 
-No publicar antes de migrar: la página del anotador consulta
-`game_lineups.position`, `lineup_role`, `leagues.rules` y
-`games.rules_snapshot`.
+Para futuros cambios de esquema: migrar SIEMPRE antes de publicar; la
+página del anotador consulta `game_lineups.position`, `lineup_role`,
+`leagues.rules` y `games.rules_snapshot`.
 
 ## Límites conocidos (honestos)
 
