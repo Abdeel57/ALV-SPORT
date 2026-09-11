@@ -2,7 +2,7 @@ import { ChevronDown, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/admin/confirm-button";
-import { MatchupForm, type TeamOption } from "@/components/admin/matchup-form";
+import { MatchupForm, type DivisionOption, type TeamOption } from "@/components/admin/matchup-form";
 import {
   AdminTitle,
   EmptyRow,
@@ -11,18 +11,10 @@ import {
   StatusChip,
   inputClass,
 } from "@/components/admin/ui";
-import {
-  assignOfficial,
-  createGame,
-  deleteGame,
-  removeAssignment,
-  submitFinalScore,
-  updateGame,
-} from "@/lib/admin/actions";
+import { createGame, deleteGame, submitFinalScore, updateGame } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 import { sql } from "@/lib/db";
 import { findScheduleConflicts, type ScheduleWarning } from "@/lib/engine";
-import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Calendario" };
 export const dynamic = "force-dynamic";
@@ -37,12 +29,14 @@ interface GameRow {
   court_id: string | null;
   home: { name: string } | null;
   away: { name: string } | null;
-  courts: { name: string } | null;
-  game_assignments: {
-    id: string;
-    role: string;
-    user_id: string;
-  }[];
+}
+
+interface DivisionRow {
+  id: string;
+  name: string;
+  season_name: string | null;
+  league_id: string | null;
+  league_name: string | null;
 }
 
 const dateTimeFormat = new Intl.DateTimeFormat("es-MX", {
@@ -77,59 +71,38 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [games, courts, divisionRows, teams] = await Promise.all([
+  const [games, divisionRows, teams] = await Promise.all([
     context.db.rows<GameRow>(sql`
       select g.id, g.status::text as status, g.scheduled_at, g.division_id,
              g.home_team_id, g.away_team_id, g.court_id,
              case when h.id is null then null
                   else json_build_object('name', h.name) end as home,
              case when a.id is null then null
-                  else json_build_object('name', a.name) end as away,
-             case when c.id is null then null
-                  else json_build_object('name', c.name) end as courts,
-             coalesce((
-               select json_agg(
-                        json_build_object('id', ga.id, 'role', ga.role,
-                                          'user_id', ga.user_id)
-                        order by ga.created_at
-                      )
-                 from public.game_assignments ga
-                where ga.game_id = g.id
-             ), '[]'::json) as game_assignments
+                  else json_build_object('name', a.name) end as away
         from public.games g
         left join public.teams h on h.id = g.home_team_id
         left join public.teams a on a.id = g.away_team_id
-        left join public.courts c on c.id = g.court_id
        where g.status <> 'finalized'
        order by g.scheduled_at
        limit 60
     `),
-    context.db.rows<{ id: string; name: string }>(sql`
-      select id, name from public.courts order by name
-    `),
-    context.db.rows<{
-      id: string;
-      name: string;
-      seasons: { name: string; leagues: { name: string } | null } | null;
-    }>(sql`
-      select d.id, d.name,
-             case when se.id is null then null else json_build_object(
-               'name', se.name,
-               'leagues', case when l.id is null then null
-                               else json_build_object('name', l.name) end
-             ) end as seasons
+    context.db.rows<DivisionRow>(sql`
+      select d.id, d.name, se.name as season_name, l.id as league_id, l.name as league_name
         from public.divisions d
         left join public.seasons se on se.id = d.season_id
         left join public.leagues l on l.id = se.league_id
-       order by d.created_at desc
+       order by l.name nulls last, d.created_at desc
     `),
     context.db.rows<TeamOption & { division_id: string | null }>(sql`
       select id, name, division_id from public.teams order by name
     `),
   ]);
-  const divisions = divisionRows.map((division) => ({
+  // Categoría = liga; dentro de ella, la división (con su temporada).
+  const divisions: DivisionOption[] = divisionRows.map((division) => ({
     id: division.id,
-    label: [division.name, seasonLabel(division.seasons)].filter(Boolean).join(" · "),
+    label: [division.name, division.season_name].filter(Boolean).join(" · "),
+    categoryId: division.league_id ?? "",
+    categoryName: division.league_name ?? "Sin categoría",
   }));
 
   const teamsByDivision: Record<string, TeamOption[]> = {};
@@ -191,7 +164,6 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
               action={createGame}
               divisions={divisions}
               teamsByDivision={teamsByDivision}
-              courts={courts}
               cancelHref="/admin/calendario"
             />
           )}
@@ -208,25 +180,18 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
           {games.map((game) => {
             const editing = edit === game.id;
             const warnings = warningsFor(game.id);
-            const scorekeepers = game.game_assignments.filter(
-              (a) => a.role === "scorekeeper",
-            );
+            const team1 = game.home?.name ?? "Equipo 1";
+            const team2 = game.away?.name ?? "Equipo 2";
             return (
               <li key={game.id} className="flex flex-col gap-3 rounded-2xl border p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {game.away?.name ?? "—"} @ {game.home?.name ?? "—"}
+                    {team1} vs {team2}
                   </span>
                   <StatusChip status={game.status} />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {dateTimeFormat.format(new Date(game.scheduled_at))} ·{" "}
-                  {game.courts?.name ?? "Sin campo"} ·{" "}
-                  {scorekeepers.length > 0 ? (
-                    <span className="text-brand-silver">Anotador asignado</span>
-                  ) : (
-                    <span className="text-brand-amber">Sin anotador</span>
-                  )}
+                  {dateTimeFormat.format(new Date(game.scheduled_at))}
                 </p>
                 {warnings.length > 0 && (
                   <p className="flex items-start gap-1.5 text-xs text-brand-amber">
@@ -239,7 +204,6 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                   <MatchupForm
                     action={updateGame}
                     teamsByDivision={teamsByDivision}
-                    courts={courts}
                     cancelHref="/admin/calendario"
                     initial={{
                       gameId: game.id,
@@ -247,7 +211,6 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                       homeTeamId: game.home_team_id,
                       awayTeamId: game.away_team_id,
                       scheduledAt: toLocalInputValue(game.scheduled_at),
-                      courtId: game.court_id,
                       teamsLocked: game.status !== "scheduled",
                     }}
                   />
@@ -297,11 +260,9 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                     >
                       <input type="hidden" name="gameId" value={game.id} />
                       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                        <span className="max-w-28 truncate">
-                          {game.away?.name ?? "Visita"}
-                        </span>
+                        <span className="max-w-28 truncate">{team1}</span>
                         <input
-                          name="awayScore"
+                          name="homeScore"
                           type="number"
                           inputMode="numeric"
                           min={0}
@@ -315,11 +276,9 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                         —
                       </span>
                       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                        <span className="max-w-28 truncate">
-                          {game.home?.name ?? "Local"}
-                        </span>
+                        <span className="max-w-28 truncate">{team2}</span>
                         <input
-                          name="homeScore"
+                          name="awayScore"
                           type="number"
                           inputMode="numeric"
                           min={0}
@@ -338,61 +297,6 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
                     </p>
                   </details>
                 )}
-
-                {/* Plegado por defecto: en móvil este bloque ocupaba media
-                    pantalla por juego; el resumen ya dice cuántos hay. */}
-                <details className="group rounded-xl bg-secondary/50">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-xs tracking-widest text-muted-foreground uppercase select-none [&::-webkit-details-marker]:hidden">
-                    Mesa y umpires
-                    <span className="tracking-normal normal-case">
-                      {game.game_assignments.length > 0
-                        ? `· ${game.game_assignments.length}`
-                        : "· sin asignar"}
-                    </span>
-                    <ChevronDown
-                      className="ml-auto size-4 transition-transform group-open:rotate-180"
-                      aria-hidden
-                    />
-                  </summary>
-                  <div className="flex flex-col gap-2 px-3 pb-3">
-                  {game.game_assignments.length > 0 && (
-                    <ul className="flex flex-wrap gap-2">
-                      {game.game_assignments.map((assignment) => (
-                        <li
-                          key={assignment.id}
-                          className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs"
-                        >
-                          {assignment.role === "scorekeeper" ? "Anotador" : "Umpire"}
-                          <form action={removeAssignment.bind(null, assignment.id)}>
-                            <button
-                              type="submit"
-                              aria-label="Quitar asignación"
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              ×
-                            </button>
-                          </form>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <form action={assignOfficial} className="flex flex-wrap items-center gap-2">
-                    <input type="hidden" name="gameId" value={game.id} />
-                    <input
-                      type="email"
-                      name="email"
-                      required
-                      placeholder="correo@delanotador.mx"
-                      className={`${inputClass} min-h-11 max-w-64`}
-                    />
-                    <select name="role" defaultValue="scorekeeper" className={`${inputClass} min-h-11 w-auto`}>
-                      <option value="scorekeeper">Anotador</option>
-                      <option value="referee">Umpire</option>
-                    </select>
-                    <GhostButton>Asignar</GhostButton>
-                  </form>
-                  </div>
-                </details>
               </li>
             );
           })}

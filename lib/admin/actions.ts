@@ -171,7 +171,7 @@ export async function saveLeague(formData: FormData): Promise<void> {
     // Edición: identidad únicamente. El deporte y el slug no cambian una vez
     // creada la liga (cambiar el deporte rompería eventos/standings; el slug
     // es la URL pública).
-    const row: Record<string, SqlValue> = { name: data.name, color: data.color };
+    const row: Record<string, SqlValue> = { name: data.name, color: data.color, contact_url: data.contact };
     if (logoUrl) row.logo_url = logoUrl;
     await upsertRow(context, "leagues", data.id, row, LEAGUES);
     done(LEAGUES);
@@ -183,9 +183,9 @@ export async function saveLeague(formData: FormData): Promise<void> {
   let leagueId: string;
   try {
     const inserted = await context.db.one<{ id: string }>(sql`
-      insert into public.leagues (organization_id, sport_id, name, slug, color, logo_url)
+      insert into public.leagues (organization_id, sport_id, name, slug, color, logo_url, contact_url)
       values (${context.organizationId}, ${data.sportId}, ${data.name},
-              ${slugify(data.name)}, ${data.color}, ${logoUrl})
+              ${slugify(data.name)}, ${data.color}, ${logoUrl}, ${data.contact})
       returning id
     `);
     leagueId = inserted.id;
@@ -383,8 +383,37 @@ export async function savePlayer(formData: FormData): Promise<void> {
     birthdate: data.birthdate ?? null,
   };
   if (photoUrl) row.photo_url = photoUrl;
-  await upsertRow(context, "players", data.id, row, PLAYERS);
-  done(PLAYERS);
+
+  if (data.id) {
+    await upsertRow(context, "players", data.id, row, PLAYERS);
+    done(PLAYERS);
+  }
+
+  // Alta directa: el jugador nace ya en el roster del equipo elegido, con la
+  // misma regla de elegibilidad que "Asignar a roster".
+  const team = data.teamId
+    ? await run(PLAYERS, () =>
+        context.db.maybeOne<{ id: string; name: string; division_id: string }>(sql`
+          select id, name, division_id from public.teams where id = ${data.teamId} limit 1
+        `),
+      )
+    : null;
+  if (data.teamId && !team) fail(PLAYERS, "Equipo inválido");
+
+  const created = await run(PLAYERS, () =>
+    context.db.one<{ id: string }>(sql`insert into public.players ${insertRow(row)} returning id`),
+  );
+  if (!team) done(PLAYERS);
+
+  await run(PLAYERS, () =>
+    context.db.exec(sql`
+      insert into public.rosters (team_id, player_id, jersey_number)
+      values (${team.id}, ${created.id}, ${data.jerseyNumber ?? null})
+    `),
+  );
+  revalidatePath(PLAYERS);
+  revalidatePath("/admin");
+  redirect(`${PLAYERS}?ok=${encodeURIComponent(`${data.firstName} ${data.lastName} quedó en el roster de ${team.name}.`)}`);
 }
 
 export async function deletePlayer(id: string): Promise<void> {

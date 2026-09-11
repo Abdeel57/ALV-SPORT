@@ -160,7 +160,8 @@ export const softballConfig: SportConfig = sportConfigSchema.parse({
     overtime: { enabled: true, maxExtra: null },
   },
   standings: {
-    rankBy: "points",
+    // La liga ordena por porcentaje ganado (G ÷ JJ, en milésimas), no por puntos.
+    rankBy: "win_pct",
     pointsFor: { win: 2, tie: 1, loss: 0 },
     // Desempate: head-to-head → diferencia de carreras → carreras anotadas.
     tiebreakers: ["head_to_head", "score_diff", "score_for"],

@@ -9,25 +9,35 @@ export interface TeamOption {
   name: string;
 }
 
+export interface DivisionOption {
+  id: string;
+  label: string;
+  /** Categoría (liga) a la que pertenece la división: filtra el listado. */
+  categoryId: string;
+  categoryName: string;
+}
+
 /**
  * Formulario de enfrentamiento, reusado para crear un partido manual y para
- * editar uno existente (rivales, fecha, hora y campo). La única interactividad
- * real es el candado local/visitante: el equipo elegido en un lado se
- * deshabilita en el otro, así el mismo equipo nunca juega contra sí mismo.
+ * editar uno existente (rivales, fecha y hora). Categoría → división →
+ * equipos: cada selector acota al siguiente, y el equipo elegido en un lado
+ * se deshabilita en el otro para que nadie juegue contra sí mismo.
+ *
+ * En la base el "Equipo 1" sigue siendo home_team_id y el "Equipo 2"
+ * away_team_id: la liga no distingue local/visitante en el rol, pero la mesa
+ * de anotación sí necesita saber quién batea primero (el Equipo 2).
  */
 export function MatchupForm({
   action,
   divisions,
   teamsByDivision,
-  courts,
   cancelHref,
   initial,
 }: {
   action: (formData: FormData) => Promise<void>;
   /** Divisiones elegibles; en edición no se muestra (la división es fija). */
-  divisions?: { id: string; label: string }[];
+  divisions?: DivisionOption[];
   teamsByDivision: Record<string, TeamOption[]>;
-  courts: { id: string; name: string }[];
   cancelHref?: string;
   initial?: {
     gameId: string;
@@ -36,16 +46,22 @@ export function MatchupForm({
     awayTeamId: string;
     /** Valor datetime-local (hora del centro de México). */
     scheduledAt: string;
-    courtId: string | null;
     /** Con anotación iniciada los rivales ya no se tocan. */
     teamsLocked?: boolean;
   };
 }) {
-  const [divisionId, setDivisionId] = useState(
-    initial?.divisionId ?? divisions?.[0]?.id ?? "",
-  );
+  const categories = (divisions ?? []).reduce<{ id: string; name: string }[]>((list, division) => {
+    if (!list.some((category) => category.id === division.categoryId)) {
+      list.push({ id: division.categoryId, name: division.categoryName });
+    }
+    return list;
+  }, []);
+  const initialDivision = divisions?.find((division) => division.id === initial?.divisionId) ?? divisions?.[0];
+  const [categoryId, setCategoryId] = useState(initialDivision?.categoryId ?? categories[0]?.id ?? "");
+  const [divisionId, setDivisionId] = useState(initial?.divisionId ?? initialDivision?.id ?? "");
   const [homeTeamId, setHomeTeamId] = useState(initial?.homeTeamId ?? "");
   const [awayTeamId, setAwayTeamId] = useState(initial?.awayTeamId ?? "");
+  const visibleDivisions = (divisions ?? []).filter((division) => division.categoryId === categoryId);
   const teams = teamsByDivision[divisionId] ?? [];
   const editing = initial !== undefined;
   const showTeams = !initial?.teamsLocked;
@@ -78,7 +94,28 @@ export function MatchupForm({
     <form action={action} className="grid gap-3 sm:grid-cols-2">
       {editing && <input type="hidden" name="gameId" value={initial.gameId} />}
       {!editing && divisions && (
-        <div className="sm:col-span-2">
+        <>
+          <Field label="Categoría">
+            <select
+              value={categoryId}
+              onChange={(event) => {
+                const nextCategory = event.target.value;
+                setCategoryId(nextCategory);
+                const first = divisions.find((division) => division.categoryId === nextCategory);
+                setDivisionId(first?.id ?? "");
+                setHomeTeamId("");
+                setAwayTeamId("");
+              }}
+              className={inputClass}
+              aria-label="Categoría"
+            >
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="División">
             <select
               name="divisionId"
@@ -91,22 +128,22 @@ export function MatchupForm({
               }}
               className={inputClass}
             >
-              {divisions.map((division) => (
+              {visibleDivisions.map((division) => (
                 <option key={division.id} value={division.id}>
                   {division.label}
                 </option>
               ))}
             </select>
           </Field>
-        </div>
+        </>
       )}
 
       {showTeams && (
         <>
-          <Field label="Equipo local">
+          <Field label="Equipo 1">
             {teamSelect("homeTeamId", homeTeamId, setHomeTeamId, awayTeamId)}
           </Field>
-          <Field label="Equipo visitante">
+          <Field label="Equipo 2">
             {teamSelect("awayTeamId", awayTeamId, setAwayTeamId, homeTeamId)}
           </Field>
           {teams.length < 2 && (
@@ -125,16 +162,6 @@ export function MatchupForm({
           defaultValue={initial?.scheduledAt}
           className={inputClass}
         />
-      </Field>
-      <Field label="Campo">
-        <select name="courtId" defaultValue={initial?.courtId ?? ""} className={inputClass}>
-          <option value="">Sin campo</option>
-          {courts.map((court) => (
-            <option key={court.id} value={court.id}>
-              {court.name}
-            </option>
-          ))}
-        </select>
       </Field>
 
       <div className="flex items-end gap-2 sm:col-span-2">

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeContact } from "./contact";
 
 /** Validación Zod de todos los formularios del admin, mensajes es-MX. */
 
@@ -81,6 +82,21 @@ export const leagueSchema = z.object({
   startsOn: dateStr("Inicio").nullable().optional().or(z.literal("").transform(() => null)),
   endsOn: dateStr("Fin").nullable().optional().or(z.literal("").transform(() => null)),
   divisions: optionalText(300),
+  /** WhatsApp, correo o enlace; se normaliza a URL (null = sin botón de contacto). */
+  contact: z
+    .string()
+    .trim()
+    .max(200, "El contacto es demasiado largo")
+    .optional()
+    .transform((value, ctx) => {
+      if (!value) return null;
+      const url = normalizeContact(value);
+      if (!url) {
+        ctx.addIssue({ code: "custom", message: "Contacto inválido: escribe un WhatsApp (10 dígitos), un correo o un enlace" });
+        return z.NEVER;
+      }
+      return url;
+    }),
 });
 
 export const playerSchema = z.object({
@@ -88,6 +104,12 @@ export const playerSchema = z.object({
   firstName: requiredText("El nombre", 60),
   lastName: requiredText("El apellido", 60),
   birthdate: dateStr("Fecha de nacimiento").nullable().optional().or(z.literal("").transform(() => null)),
+  /** Equipo al que entra directo al crearlo (opcional). */
+  teamId: z
+    .union([z.literal(""), z.uuid({ error: "Selecciona un equipo válido" })])
+    .optional()
+    .transform((value) => (value ? value : null)),
+  jerseyNumber: optionalText(4),
 });
 
 export const rosterBulkSchema = z.object({
@@ -162,8 +184,8 @@ const localDateTime = z
 export const gameCreateSchema = z
   .object({
     divisionId: uuid("la división"),
-    homeTeamId: uuid("el equipo local"),
-    awayTeamId: uuid("el equipo visitante"),
+    homeTeamId: uuid("el equipo 1"),
+    awayTeamId: uuid("el equipo 2"),
     scheduledAt: localDateTime,
     courtId: optionalCourt,
   })

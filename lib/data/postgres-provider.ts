@@ -134,6 +134,7 @@ interface LeagueQueryRow {
   name: string;
   logo_url: string | null;
   color: string | null;
+  contact_url: string | null;
   sport_key: string;
   sport_name: string;
   sport_config: unknown;
@@ -143,7 +144,7 @@ interface LeagueQueryRow {
 async function fetchLeagues(): Promise<LeagueRecord[]> {
   const db = await getDb();
   const rows = await db.rows<LeagueQueryRow>(sql`
-    select l.id, l.slug, l.name, l.logo_url, l.color,
+    select l.id, l.slug, l.name, l.logo_url, l.color, l.contact_url,
            sp.key as sport_key, sp.name as sport_name, sp.config as sport_config,
            coalesce((
              select json_agg(
@@ -175,6 +176,8 @@ async function fetchLeagues(): Promise<LeagueRecord[]> {
         seasonName: season.name,
         logoUrl: row.logo_url,
         color: row.color,
+        rankBy: parsed.data.standings.rankBy,
+        contactUrl: row.contact_url,
         seasonId: season.id,
         config: parsed.data,
       },
@@ -191,6 +194,8 @@ function toLeagueInfo(league: LeagueInfo): LeagueInfo {
     seasonName: league.seasonName,
     logoUrl: league.logoUrl,
     color: league.color,
+    rankBy: league.rankBy,
+    contactUrl: league.contactUrl,
   };
 }
 

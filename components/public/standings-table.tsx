@@ -8,20 +8,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { StandingsRowView } from "@/lib/data/types";
+import { formatWinPct } from "@/lib/utils";
 
 /**
  * Tabla de posiciones estilo broadcast: el líder lleva la barra ámbar y su
  * rank en ámbar; cada equipo lleva su barra de color oficial. En móvil las
- * columnas esenciales (#, equipo, JJ, G, P, Pts) son visibles; CF/CC/DIF
- * entran con scroll horizontal.
+ * columnas esenciales (#, equipo, JJ, G, P y Pts o PCT) son visibles;
+ * CF/CC/DIF entran con scroll horizontal. Con rankBy = win_pct la columna
+ * principal es el porcentaje ganado (G ÷ JJ) en milésimas, como en béisbol.
  */
 export function StandingsTable({
   rows,
   compact = false,
+  rankBy = "points",
 }: {
   rows: StandingsRowView[];
   compact?: boolean;
+  rankBy?: "points" | "win_pct";
 }) {
+  const primaryLabel = rankBy === "win_pct" ? "PCT" : "Pts";
   return (
     <div className="card-elevated overflow-x-auto rounded-xl">
       <Table>
@@ -32,7 +37,7 @@ export function StandingsTable({
             <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">JJ</TableHead>
             <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">G</TableHead>
             <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">P</TableHead>
-            <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">Pts</TableHead>
+            <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">{primaryLabel}</TableHead>
             {!compact && (
               <>
                 <TableHead className="text-right text-[11px] tracking-[0.12em] uppercase">CF</TableHead>
@@ -86,7 +91,7 @@ export function StandingsTable({
                 <TableCell
                   className={`text-right font-display text-base ${leader ? "text-brand-amber" : ""}`}
                 >
-                  {row.points}
+                  {rankBy === "win_pct" ? formatWinPct(row.winPct) : row.points}
                 </TableCell>
                 {!compact && (
                   <>

@@ -33,6 +33,10 @@ export interface LeagueInfo {
   // Identidad propia de la liga: tiñe sus chips/acentos sobre la base ALV.
   logoUrl: string | null;
   color: string | null;
+  /** Criterio principal de la tabla: puntos o porcentaje ganado (G ÷ JJ). */
+  rankBy: "points" | "win_pct";
+  /** Contacto público (https://wa.me/…, mailto:… o URL); null = sin botón. */
+  contactUrl: string | null;
 }
 
 export interface GameSummary {

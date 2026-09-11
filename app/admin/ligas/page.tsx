@@ -21,6 +21,7 @@ interface LeagueRow {
   slug: string;
   color: string | null;
   logo_url: string | null;
+  contact_url: string | null;
   is_published: boolean;
   sport_id: string;
   sports: { name: string } | null;
@@ -85,7 +86,7 @@ export default async function LigasPage({ searchParams }: PageProps) {
 
   const [leagues, sports] = await Promise.all([
     db.rows<LeagueRow>(sql`
-      select l.id, l.name, l.slug, l.color, l.logo_url, l.is_published, l.sport_id,
+      select l.id, l.name, l.slug, l.color, l.logo_url, l.contact_url, l.is_published, l.sport_id,
              case when sp.id is null then null
                   else json_build_object('name', sp.name) end as sports,
              coalesce((
@@ -155,6 +156,17 @@ export default async function LigasPage({ searchParams }: PageProps) {
                   name="color"
                   defaultValue={editing?.color ?? DEFAULT_COLOR}
                   className="h-11 w-full cursor-pointer rounded-lg border bg-transparent p-1"
+                />
+              </Field>
+              <Field
+                label="Contacto (WhatsApp, correo o enlace)"
+                hint="Aparece como botón en la portada. Sin contacto no se muestra el botón."
+              >
+                <input
+                  name="contact"
+                  defaultValue={editing?.contact_url ?? ""}
+                  placeholder="55 1234 5678"
+                  className={inputClass}
                 />
               </Field>
               <Field label={editing?.logo_url ? "Logotipo (reemplazar)" : "Logotipo"}>

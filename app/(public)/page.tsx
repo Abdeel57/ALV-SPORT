@@ -77,7 +77,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
         </section>
       )}
 
-      <JoinCta />
+      <JoinCta contactUrl={data.league.contactUrl} />
 
       {liveRest.length > 0 && (
         <section aria-labelledby="en-vivo" className="flex flex-col gap-3.5">
@@ -130,7 +130,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
           <EmptyState>La tabla aparecerá cuando haya juegos finalizados.</EmptyState>
         ) : (
           <>
-            <StandingsTable rows={data.standingsTop} compact />
+            <StandingsTable rows={data.standingsTop} compact rankBy={data.league.rankBy} />
             <Link
               href={`/tabla?liga=${data.league.slug}`}
               className="self-start text-sm text-brand-amber transition-transform duration-200 hover:translate-x-0.5"

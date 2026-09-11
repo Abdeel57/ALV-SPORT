@@ -56,6 +56,8 @@ const leagueInfos: LeagueInfo[] = seedLeagues.map((league) => {
     // El seed de demo no trae identidad propia: cae al monograma/acento ALV.
     logoUrl: null,
     color: null,
+    rankBy: (sport?.config as SportConfig | undefined)?.standings.rankBy ?? "points",
+    contactUrl: null,
   };
 });
 

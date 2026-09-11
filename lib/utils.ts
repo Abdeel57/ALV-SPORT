@@ -60,3 +60,9 @@ export function splitFullName(full: string): { firstName: string; lastName: stri
     lastName: parts.slice(pivot).join(" "),
   }
 }
+
+/** Porcentaje ganado en milésimas, estilo béisbol: 0.75 → ".750", 1 → "1.000". */
+export function formatWinPct(value: number): string {
+  const fixed = value.toFixed(3);
+  return fixed.startsWith("0.") ? fixed.slice(1) : fixed;
+}

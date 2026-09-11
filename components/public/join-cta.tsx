@@ -1,10 +1,14 @@
-import Link from "next/link";
-
 /**
- * Llamado a la acción de auto-registro en la portada: coaches inscriben su
- * equipo y jugadores se unen o buscan equipo, sin pasar por la mesa admin.
+ * Llamado a la acción de la portada: un solo botón de contacto (WhatsApp,
+ * correo o enlace) configurado por la liga en el panel. Sin contacto
+ * configurado no se muestra nada: mejor que un botón que no lleva a ningún
+ * lado.
  */
-export function JoinCta() {
+export function JoinCta({ contactUrl }: { contactUrl: string | null }) {
+  if (!contactUrl) return null;
+  const isWhatsApp = /wa\.me|whatsapp/i.test(contactUrl);
+  const isMail = /^mailto:/i.test(contactUrl);
+  const external = /^https?:\/\//i.test(contactUrl);
   return (
     <section
       aria-labelledby="unete"
@@ -28,33 +32,24 @@ export function JoinCta() {
             ¿Quieres jugar esta temporada?
           </h2>
           <p className="text-sm text-muted-foreground">
-            Inscribe a tu equipo o únete a uno en un minuto. Sin filas, sin
-            papeleo — tú te registras y la liga te contacta.
+            Escríbenos y te decimos cómo inscribir a tu equipo o unirte a uno.
           </p>
         </div>
         <div className="flex flex-col gap-2.5 sm:min-w-58">
-          <Link
-            href="/inscribirse?tipo=coach"
+          <a
+            href={contactUrl}
+            target={external ? "_blank" : undefined}
+            rel={external ? "noreferrer" : undefined}
             className="sheen group flex items-center justify-between gap-3 rounded-xl bg-brand-gradient px-5 py-3.5 font-display text-lg text-black transition-transform active:scale-[0.99]"
           >
             <span className="flex items-center gap-2">
-              <span aria-hidden>📋</span> Soy coach / capitán
+              <span aria-hidden>{isWhatsApp ? "💬" : isMail ? "✉️" : "📞"}</span>
+              {isWhatsApp ? "Contacto por WhatsApp" : "Contacto"}
             </span>
             <span aria-hidden className="transition-transform duration-200 group-hover:translate-x-0.5">
               →
             </span>
-          </Link>
-          <Link
-            href="/inscribirse?tipo=player"
-            className="group flex items-center justify-between gap-3 rounded-xl border border-brand-silver/30 px-5 py-3.5 font-display text-lg transition-colors hover:bg-muted"
-          >
-            <span className="flex items-center gap-2">
-              <span aria-hidden>🏅</span> Soy jugador
-            </span>
-            <span aria-hidden className="transition-transform duration-200 group-hover:translate-x-0.5">
-              →
-            </span>
-          </Link>
+          </a>
         </div>
       </div>
     </section>

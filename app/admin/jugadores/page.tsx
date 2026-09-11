@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { ConfirmButton } from "@/components/admin/confirm-button";
+import { TeamOptions, type TeamChoice } from "@/components/admin/team-options";
 import { InitialsAvatar } from "@/components/public/team-initials";
 import {
   AdminTitle,
@@ -35,6 +36,12 @@ interface PlayerRow {
   }[];
 }
 
+interface TeamRow {
+  id: string;
+  name: string;
+  category: string | null;
+}
+
 interface PageProps {
   searchParams: Promise<{ ok?: string; error?: string; q?: string; team?: string }>;
 }
@@ -61,7 +68,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
   // Con ?team= el roster listado es solo el de ese equipo.
   const rosterFilter = team ? sql`and r.team_id = ${team}` : empty;
 
-  const [players, teams] = await Promise.all([
+  const [players, teamRows] = await Promise.all([
     context.db.rows<PlayerRow>(sql`
       select p.id, p.first_name, p.last_name, p.photo_url,
              coalesce((
@@ -82,10 +89,21 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
        order by p.last_name
        limit 50
     `),
-    context.db.rows<{ id: string; name: string }>(sql`
-      select id, name from public.teams order by name
+    // Equipos con su categoría (liga) para agrupar los selectores.
+    context.db.rows<TeamRow>(sql`
+      select t.id, t.name, l.name as category
+        from public.teams t
+        left join public.divisions d on d.id = t.division_id
+        left join public.seasons se on se.id = d.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by l.name nulls last, t.name
     `),
   ]);
+  const teams: TeamChoice[] = teamRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    category: row.category ?? "Sin categoría",
+  }));
   const rosterTeam = team ? teams.find((row) => row.id === team) : undefined;
 
   return (
@@ -101,6 +119,15 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
           </Field>
           <Field label="Apellido">
             <input name="lastName" required className={inputClass} />
+          </Field>
+          <Field label="Equipo" hint="Queda en el roster de ese equipo al crearlo.">
+            <select name="teamId" defaultValue={team || ""} className={inputClass}>
+              <option value="">Sin equipo por ahora</option>
+              <TeamOptions teams={teams} />
+            </select>
+          </Field>
+          <Field label="Número (opcional)">
+            <input name="jerseyNumber" inputMode="numeric" maxLength={4} placeholder="23" className={inputClass} />
           </Field>
           <Field label="Fecha de nacimiento (opcional)">
             <input type="date" name="birthdate" className={inputClass} />
@@ -129,11 +156,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
                 <option value="" disabled>
                   Selecciona
                 </option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
+                <TeamOptions teams={teams} />
               </select>
             </Field>
           </div>
@@ -178,11 +201,7 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
               <option value="" disabled>
                 Selecciona
               </option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
+              <TeamOptions teams={teams} />
             </select>
           </Field>
           <Field label="Número" hint="opcional">

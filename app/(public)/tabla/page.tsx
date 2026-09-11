@@ -50,10 +50,14 @@ async function TablaContent({ liga }: { liga: string | undefined }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            {standings.league.seasonName} · desempates: head-to-head,
-            diferencial y anotación a favor (según configuración del deporte).
+            {standings.league.seasonName} ·{" "}
+            {standings.league.rankBy === "win_pct"
+              ? "orden por porcentaje ganado (G ÷ JJ, en milésimas); "
+              : ""}
+            desempates: head-to-head, diferencial y anotación a favor (según
+            configuración del deporte).
           </p>
-          <StandingsTable rows={standings.rows} />
+          <StandingsTable rows={standings.rows} rankBy={standings.league.rankBy} />
         </>
       )}
     </main>

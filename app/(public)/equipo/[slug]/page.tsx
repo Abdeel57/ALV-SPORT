@@ -6,6 +6,7 @@ import { GameCard } from "@/components/public/game-card";
 import { ImportedStatsTable } from "@/components/public/imported-stats";
 import { Badge } from "@/components/ui/badge";
 import { getPublicData } from "@/lib/data";
+import { formatWinPct } from "@/lib/utils";
 
 export const revalidate = 300;
 
@@ -96,8 +97,10 @@ export default async function EquipoPage({ params }: PageProps) {
               <p className="text-xs text-muted-foreground">Récord</p>
             </div>
             <div>
-              <p className="font-display text-2xl">{standing.points}</p>
-              <p className="text-xs text-muted-foreground">Puntos</p>
+              <p className="font-display text-2xl">
+                {league.rankBy === "win_pct" ? formatWinPct(standing.winPct) : standing.points}
+              </p>
+              <p className="text-xs text-muted-foreground">{league.rankBy === "win_pct" ? "PCT" : "Puntos"}</p>
             </div>
           </div>
         )}
