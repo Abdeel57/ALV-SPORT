@@ -26,8 +26,10 @@ const BOOTSTRAP = `
 create extension if not exists pgcrypto;
 create schema if not exists auth;
 
+-- Sin default en id: en producción GoTrue siempre lo provee, y la tabla real
+-- tampoco lo genera. Mantenerlo fiel obliga a las pruebas a comportarse igual.
 create table if not exists auth.users (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key,
   instance_id uuid,
   aud text,
   role text,

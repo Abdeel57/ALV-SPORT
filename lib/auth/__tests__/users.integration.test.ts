@@ -55,8 +55,9 @@ describe("cuentas y contraseñas", () => {
   it("valida un hash bcrypt creado por otra implementación", async () => {
     // Simula una cuenta ya existente, escrita por GoTrue.
     await serviceDb().exec(sql`
-      insert into auth.users (email, encrypted_password, aud, role)
-      values ('heredada@liga.mx', ${BCRYPT_EXTERNO}, 'authenticated', 'authenticated')
+      insert into auth.users (id, email, encrypted_password, aud, role)
+      values (gen_random_uuid(), 'heredada@liga.mx', ${BCRYPT_EXTERNO},
+              'authenticated', 'authenticated')
     `);
 
     const { verifyCredentials } = await import("../users");
@@ -116,10 +117,33 @@ describe("cuentas y contraseñas", () => {
   it("ignora cuentas sin contraseña establecida", async () => {
     const { verifyCredentials } = await import("../users");
     await serviceDb().exec(sql`
-      insert into auth.users (email, aud, role)
-      values ('sinclave@liga.mx', 'authenticated', 'authenticated')
+      insert into auth.users (id, email, aud, role)
+      values (gen_random_uuid(), 'sinclave@liga.mx', 'authenticated', 'authenticated')
     `);
     expect(await verifyCredentials("sinclave@liga.mx", "")).toBeNull();
     expect(await verifyCredentials("sinclave@liga.mx", "cualquiera")).toBeNull();
+  });
+
+  it("rechaza limpio una cuenta con contraseña vacía, sin lanzar error", async () => {
+    // Caso REAL de producción: el usuario semilla tiene encrypted_password
+    // = '' . Sin el filtro de formato, crypt() revienta con "invalid salt" y
+    // el error distinto delataría que ese correo sí existe.
+    const { verifyCredentials } = await import("../users");
+    await serviceDb().exec(sql`
+      insert into auth.users (id, email, encrypted_password, aud, role)
+      values (gen_random_uuid(), 'vacia@liga.mx', '', 'authenticated', 'authenticated')
+    `);
+    await expect(verifyCredentials("vacia@liga.mx", "loquesea")).resolves.toBeNull();
+    await expect(verifyCredentials("vacia@liga.mx", "")).resolves.toBeNull();
+  });
+
+  it("rechaza limpio un hash en un formato que no sabe leer", async () => {
+    const { verifyCredentials } = await import("../users");
+    await serviceDb().exec(sql`
+      insert into auth.users (id, email, encrypted_password, aud, role)
+      values (gen_random_uuid(), 'otroformato@liga.mx',
+              '$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA', 'authenticated', 'authenticated')
+    `);
+    await expect(verifyCredentials("otroformato@liga.mx", "loquesea")).resolves.toBeNull();
   });
 });

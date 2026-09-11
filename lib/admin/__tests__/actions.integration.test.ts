@@ -70,8 +70,8 @@ beforeAll(async () => {
   harness = await startHarness();
 
   const admin = await serviceDb().one<{ id: string }>(sql`
-    insert into auth.users (email, aud, role)
-    values ('admin@pruebas.test', 'authenticated', 'authenticated')
+    insert into auth.users (id, email, aud, role)
+    values (gen_random_uuid(), 'admin@pruebas.test', 'authenticated', 'authenticated')
     returning id
   `);
   adminId = admin.id;

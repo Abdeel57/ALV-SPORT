@@ -74,7 +74,11 @@ export async function verifyCredentials(
     select id, email
       from auth.users
      where lower(email) = ${normalized}
-       and encrypted_password is not null
+       -- Solo hashes bcrypt ($2a$/$2b$/$2y$). Hay cuentas sin contraseña
+       -- establecida (el usuario semilla la tiene vacía): sin este filtro,
+       -- crypt() lanzaría "invalid salt" en vez de rechazar limpiamente, y
+       -- el mensaje de error distinto delataría qué correos existen.
+       and encrypted_password like '$2%'
        and encrypted_password = ${compare}
      limit 1
   `);

@@ -39,8 +39,8 @@ beforeAll(async () => {
 
   const db = serviceDb();
   const user = await db.one<{ id: string }>(sql`
-    insert into auth.users (email, aud, role)
-    values ('anotador-live@pruebas.test', 'authenticated', 'authenticated')
+    insert into auth.users (id, email, aud, role)
+    values (gen_random_uuid(), 'anotador-live@pruebas.test', 'authenticated', 'authenticated')
     returning id
   `);
   userId = user.id;

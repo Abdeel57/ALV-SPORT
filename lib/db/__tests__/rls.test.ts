@@ -23,8 +23,8 @@ let openGameId: string;
 
 async function createUser(email: string): Promise<string> {
   const row = await serviceDb().one<{ id: string }>(sql`
-    insert into auth.users (email, aud, role)
-    values (${email}, 'authenticated', 'authenticated')
+    insert into auth.users (id, email, aud, role)
+    values (gen_random_uuid(), ${email}, 'authenticated', 'authenticated')
     returning id
   `);
   return row.id;
