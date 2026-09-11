@@ -1,3 +1,4 @@
+import { Ban, XCircle } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import {
@@ -5,6 +6,9 @@ import {
   EmptyRow,
   Feedback,
   Field,
+  FormPanel,
+  ListRow,
+  RowText,
   StatusChip,
   SubmitButton,
   inputClass,
@@ -26,11 +30,11 @@ interface SanctionRow {
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; nuevo?: string }>;
 }
 
 export default async function SancionesPage({ searchParams }: PageProps) {
-  const { ok, error } = await searchParams;
+  const { ok, error, nuevo } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
 
@@ -38,22 +42,18 @@ export default async function SancionesPage({ searchParams }: PageProps) {
     context.db.rows<SanctionRow>(sql`
       select s.id, s.reason, s.games_count, s.starts_on, s.status::text as status,
              case when p.id is null then null
-                  else json_build_object('first_name', p.first_name,
-                                         'last_name', p.last_name) end as players
+                  else json_build_object('first_name', p.first_name, 'last_name', p.last_name) end as players
         from public.sanctions s
         left join public.players p on p.id = s.player_id
        order by s.created_at desc
     `),
     context.db.rows<{ id: string; first_name: string; last_name: string }>(sql`
-      select id, first_name, last_name from public.players order by last_name limit 200
+      select id, first_name, last_name from public.players order by last_name, first_name limit 300
     `),
   ]);
 
-  // Juegos cumplidos por sanción (derivado en la base). Antes era una
-  // llamada por sanción; ahora la base las resuelve todas de un viaje.
-  const activeIds = sanctions
-    .filter((sanction) => sanction.status === "active")
-    .map((sanction) => sanction.id);
+  // Partidos cumplidos por sanción, derivados en la base de un solo viaje.
+  const activeIds = sanctions.filter((s) => s.status === "active").map((s) => s.id);
   const servedRows =
     activeIds.length > 0
       ? await context.db.rows<{ id: string; served: number | null }>(sql`
@@ -63,19 +63,16 @@ export default async function SancionesPage({ searchParams }: PageProps) {
         `)
       : [];
   const served = new Map(servedRows.map((row) => [row.id, row.served ?? 0]));
+  const active = activeIds.length;
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Sanciones</AdminTitle>
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+      <AdminTitle count={sanctions.length} subtitle={active > 0 ? `${active} activa${active === 1 ? "" : "s"} · el sancionado no puede ser titular` : "El sancionado no puede ser titular"}>
+        Sanciones
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
-      <p className="text-sm text-muted-foreground">
-        Un jugador con sanción activa <strong>no puede ser marcado titular</strong>{" "}
-        en la mesa de anotación (bloqueado también a nivel base de datos). Los
-        partidos cumplidos se derivan de los juegos finalizados de su equipo.
-      </p>
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Aplicar sanción</h2>
+      <FormPanel title="Aplicar sanción" icon={Ban} open={nuevo === "1"}>
         <form action={createSanction} className="grid gap-3 sm:grid-cols-2">
           <Field label="Jugador">
             <select name="playerId" required defaultValue="" className={inputClass}>
@@ -102,44 +99,40 @@ export default async function SancionesPage({ searchParams }: PageProps) {
             <SubmitButton>Aplicar sanción</SubmitButton>
           </div>
         </form>
-      </section>
+      </FormPanel>
 
       {sanctions.length === 0 ? (
-        <EmptyRow>Sin sanciones registradas.</EmptyRow>
+        <EmptyRow>Sin sanciones.</EmptyRow>
       ) : (
         <ul className="flex flex-col gap-2">
-          {sanctions.map((sanction) => (
-            <li key={sanction.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
-                  {sanction.players?.first_name} {sanction.players?.last_name}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {sanction.reason} · desde {sanction.starts_on}
-                </span>
-              </span>
-              {sanction.status === "active" && (
-                <span className="font-display text-lg tabular-nums">
-                  {served.get(sanction.id) ?? 0}/{sanction.games_count}
-                </span>
-              )}
-              <StatusChip
-                status={
-                  sanction.status === "active" &&
-                  (served.get(sanction.id) ?? 0) >= sanction.games_count
-                    ? "served"
-                    : sanction.status
+          {sanctions.map((sanction) => {
+            const done = sanction.status === "active" && (served.get(sanction.id) ?? 0) >= sanction.games_count;
+            return (
+              <ListRow
+                key={sanction.id}
+                actions={
+                  sanction.status === "active" ? (
+                    <form action={cancelSanction.bind(null, sanction.id)}>
+                      <ConfirmButton icon ariaLabel="Cancelar sanción" message="¿Cancelar esta sanción? El jugador vuelve a ser elegible.">
+                        <XCircle className="size-4" aria-hidden />
+                      </ConfirmButton>
+                    </form>
+                  ) : undefined
                 }
-              />
-              {sanction.status === "active" && (
-                <form action={cancelSanction.bind(null, sanction.id)}>
-                  <ConfirmButton message="¿Cancelar esta sanción? El jugador vuelve a ser elegible.">
-                    Cancelar
-                  </ConfirmButton>
-                </form>
-              )}
-            </li>
-          ))}
+              >
+                <RowText
+                  title={`${sanction.players?.first_name ?? ""} ${sanction.players?.last_name ?? ""}`.trim() || "—"}
+                  meta={`${sanction.reason} · desde ${sanction.starts_on}`}
+                />
+                {sanction.status === "active" && (
+                  <span className="shrink-0 font-display text-lg tabular-nums" title="Partidos cumplidos">
+                    {served.get(sanction.id) ?? 0}/{sanction.games_count}
+                  </span>
+                )}
+                <StatusChip status={done ? "served" : sanction.status} />
+              </ListRow>
+            );
+          })}
         </ul>
       )}
     </main>

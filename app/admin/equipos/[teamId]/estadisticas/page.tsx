@@ -1,11 +1,10 @@
-import { Trash2 } from "lucide-react";
+import { Trash2, Upload } from "lucide-react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import { StatImportForm } from "@/components/admin/stat-import-form";
-import { AdminTitle, EmptyRow, Feedback } from "@/components/admin/ui";
+import { AdminTitle, Feedback, FormPanel, SecondaryLink } from "@/components/admin/ui";
 import { ImportedStatsTable } from "@/components/public/imported-stats";
 import { deleteTeamStatImport, importTeamStats } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
@@ -41,63 +40,51 @@ export default async function TeamStatsPage({ params, searchParams }: PageProps)
   const imports = rows.map(toStatImportView).filter((view): view is TeamStatImportView => view !== null);
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
-      <div className="flex flex-col gap-1">
-        <Link href="/admin/equipos" className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-          ← Equipos
-        </Link>
-        <AdminTitle>Estadísticas de {team.name}</AdminTitle>
-        <p className="text-sm text-muted-foreground">
-          Tablas acumuladas de otro programa. Se muestran en{" "}
-          <Link href={`/equipo/${team.slug}`} className="text-brand-amber underline-offset-2 hover:underline">
-            la página pública del equipo
-          </Link>
-          , separadas de las estadísticas que ALV SPORT calcula desde la anotación.
-        </p>
-      </div>
+    <main className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
+      <AdminTitle
+        subtitle={team.name}
+        back={{ href: "/admin/equipos", label: "Equipos" }}
+        action={
+          <SecondaryLink href={`/equipo/${team.slug}`} className="w-full sm:w-auto">
+            Ver página pública
+          </SecondaryLink>
+        }
+      >
+        Estadísticas
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Cargar tabla</h2>
+      <FormPanel title="Cargar tabla" icon={Upload} open={imports.length === 0}>
         <StatImportForm teamId={team.id} action={importTeamStats} />
-      </section>
+      </FormPanel>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="font-display text-xl">Tablas cargadas</h2>
-        {imports.length === 0 ? (
-          <EmptyRow>Todavía no hay tablas cargadas para este equipo.</EmptyRow>
-        ) : (
-          imports.map((data) => {
-            const linked = data.rows.filter((row) => row.playerId).length;
-            const unlinked = data.rows.filter((row) => !row.playerId).map((row) => row.name);
-            return (
-              <div key={data.id} className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider">
-                    {KIND_LABELS[data.kind]}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {linked} de {data.rows.length} nombres vinculados a la plantilla
-                    {data.sourceName ? ` · ${data.sourceName}` : ""}
-                  </span>
-                  <form action={deleteTeamStatImport.bind(null, data.id, team.id)} className="ml-auto">
-                    <ConfirmButton message={`¿Quitar la tabla "${data.title}"?`} ariaLabel={`Quitar ${data.title}`}>
-                      <Trash2 className="size-4" aria-hidden />
-                    </ConfirmButton>
-                  </form>
-                </div>
-                {unlinked.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Sin vincular (revisa el nombre en la plantilla): {unlinked.slice(0, 8).join("; ")}
-                    {unlinked.length > 8 ? ` y ${unlinked.length - 8} más` : ""}
-                  </p>
-                )}
-                <ImportedStatsTable data={data} accentColor={team.color} linkPlayers={false} />
+      {imports.length > 0 &&
+        imports.map((data) => {
+          const linked = data.rows.filter((row) => row.playerId).length;
+          const unlinked = data.rows.filter((row) => !row.playerId).map((row) => row.name);
+          return (
+            <section key={data.id} className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="rounded-full border px-2.5 py-1 text-xs font-semibold tracking-wider uppercase">{KIND_LABELS[data.kind]}</span>
+                <span className="text-muted-foreground">
+                  {linked} de {data.rows.length} vinculados a la plantilla
+                </span>
+                <form action={deleteTeamStatImport.bind(null, data.id, team.id)} className="ml-auto">
+                  <ConfirmButton icon ariaLabel="Quitar tabla" message={`¿Quitar la tabla "${data.title}"?`}>
+                    <Trash2 className="size-4" aria-hidden />
+                  </ConfirmButton>
+                </form>
               </div>
-            );
-          })
-        )}
-      </section>
+              {unlinked.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Sin vincular: {unlinked.slice(0, 8).join("; ")}
+                  {unlinked.length > 8 ? ` y ${unlinked.length - 8} más` : ""}
+                </p>
+              )}
+              <ImportedStatsTable data={data} accentColor={team.color} linkPlayers={false} />
+            </section>
+          );
+        })}
     </main>
   );
 }

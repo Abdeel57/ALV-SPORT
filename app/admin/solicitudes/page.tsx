@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import { CopyLink } from "@/components/admin/copy-link";
@@ -9,6 +10,7 @@ import {
   GhostButton,
   StatusChip,
   SubmitButton,
+  colorInputClass,
   inputClass,
 } from "@/components/admin/ui";
 import {
@@ -63,11 +65,7 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
   if (!context) return null;
 
   const conditions = [
-    estado === "abiertas"
-      ? sql`r.status in ('pending', 'contacted')`
-      : estado
-        ? sql`r.status::text = ${estado}`
-        : null,
+    estado === "abiertas" ? sql`r.status in ('pending', 'contacted')` : estado !== "todas" ? sql`r.status::text = ${estado}` : null,
     tipo ? sql`r.kind::text = ${tipo}` : null,
   ].filter((part): part is SqlQuery => part !== null);
   const where = conditions.length > 0 ? join(conditions, " and ") : sql`true`;
@@ -80,8 +78,7 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
              r.created_at, r.resolved_team_id, r.resolved_player_id,
              case when se.id is null then null else json_build_object(
                'name', se.name,
-               'leagues', case when l.id is null then null
-                               else json_build_object('name', l.name) end
+               'leagues', case when l.id is null then null else json_build_object('name', l.name) end
              ) end as seasons
         from public.signup_requests r
         left join public.seasons se on se.id = r.season_id
@@ -89,15 +86,8 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
        where ${where}
        order by r.created_at desc
     `),
-    context.db.rows<{ id: string; name: string; season_id: string }>(sql`
-      select id, name, season_id from public.divisions
-    `),
-    context.db.rows<{
-      id: string;
-      name: string;
-      division_id: string;
-      join_code: string | null;
-    }>(sql`
+    context.db.rows<{ id: string; name: string; season_id: string }>(sql`select id, name, season_id from public.divisions`),
+    context.db.rows<{ id: string; name: string; division_id: string; join_code: string | null }>(sql`
       select id, name, division_id, join_code from public.teams
     `),
   ]);
@@ -122,138 +112,117 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
     teamsBySeason.set(seasonId, list);
   }
 
-  const filters: { key: string; label: string; param: "estado"; value: string }[] = [
-    { key: "abiertas", label: "Abiertas", param: "estado", value: "abiertas" },
-    { key: "approved", label: "Aprobadas", param: "estado", value: "approved" },
-    { key: "rejected", label: "Rechazadas", param: "estado", value: "rejected" },
-    { key: "todas", label: "Todas", param: "estado", value: "" },
+  const filters = [
+    { value: "abiertas", label: "Abiertas" },
+    { value: "approved", label: "Aprobadas" },
+    { value: "rejected", label: "Rechazadas" },
+    { value: "todas", label: "Todas" },
   ];
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-      <AdminTitle>Solicitudes de registro</AdminTitle>
+      <AdminTitle count={requests.length} subtitle="Coaches y jugadores que se registraron desde el sitio">
+        Solicitudes
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
-      <p className="text-sm text-muted-foreground">
-        Coaches y jugadores que se registraron desde el sitio. Aprobar a un
-        coach <strong>crea su equipo</strong> y siembra la inscripción; aprobar
-        a un jugador <strong>lo crea y lo pone en el roster</strong> — sin
-        capturar nada a mano.
-      </p>
 
-      <div className="flex flex-wrap gap-2">
+      <nav aria-label="Filtro por estado" className="flex gap-1 rounded-xl border p-1">
         {filters.map((filter) => {
-          const active = estado === filter.value || (filter.value === "" && estado === "todas");
-          const href = `/admin/solicitudes?estado=${filter.value === "" ? "todas" : filter.value}${tipo ? `&tipo=${tipo}` : ""}`;
+          const active = estado === filter.value;
+          const href = `/admin/solicitudes?estado=${filter.value}${tipo ? `&tipo=${tipo}` : ""}`;
           return (
             <a
-              key={filter.key}
+              key={filter.value}
               href={href}
-              className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                active ? "border-brand-amber/60 bg-secondary font-semibold" : "text-muted-foreground hover:bg-muted"
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-10 flex-1 items-center justify-center rounded-lg px-2 text-sm transition-colors ${
+                active ? "bg-secondary font-semibold text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
               {filter.label}
             </a>
           );
         })}
-      </div>
+      </nav>
 
       {requests.length === 0 ? (
-        <EmptyRow>No hay solicitudes con estos filtros.</EmptyRow>
+        <EmptyRow>No hay solicitudes {estado === "abiertas" ? "abiertas" : "con este filtro"}.</EmptyRow>
       ) : (
         <ul className="flex flex-col gap-3">
           {requests.map((request) => {
             const open = request.status === "pending" || request.status === "contacted";
-            const seasonDivisions = request.season_id
-              ? (divisionsBySeason.get(request.season_id) ?? [])
-              : [];
-            const seasonTeams = request.season_id
-              ? (teamsBySeason.get(request.season_id) ?? [])
-              : [];
+            const seasonDivisions = request.season_id ? (divisionsBySeason.get(request.season_id) ?? []) : [];
+            const seasonTeams = request.season_id ? (teamsBySeason.get(request.season_id) ?? []) : [];
             return (
               <li key={request.id} className="flex flex-col gap-3 rounded-2xl border p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className="rounded-md border px-2 py-0.5 text-xs font-semibold"
-                    style={{
-                      borderColor: request.kind === "coach" ? "var(--brand-amber)" : "var(--brand-silver)",
-                      color: request.kind === "coach" ? "var(--brand-amber)" : "var(--brand-silver)",
-                    }}
-                  >
-                    {request.kind === "coach" ? "COACH" : "JUGADOR"}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{request.full_name}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 text-sm font-semibold">
+                      <span
+                        className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase"
+                        style={{
+                          borderColor: request.kind === "coach" ? "var(--brand-amber)" : "var(--brand-silver)",
+                          color: request.kind === "coach" ? "var(--brand-amber)" : "var(--brand-silver)",
+                        }}
+                      >
+                        {request.kind === "coach" ? "Coach" : "Jugador"}
+                      </span>
+                      <span className="truncate">{request.full_name}</span>
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {seasonLabel(request.seasons) || "Sin liga"} · {dateFormat.format(new Date(request.created_at))}
+                    </p>
+                  </div>
                   <StatusChip status={request.status} />
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {dateFormat.format(new Date(request.created_at))}
-                  </span>
                 </div>
 
-                <div className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
-                  <p className="truncate">
-                    <span className="text-muted-foreground">Correo: </span>
-                    <a href={`mailto:${request.email}`} className="text-brand-amber hover:underline">
-                      {request.email}
-                    </a>
-                  </p>
+                <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+                  <div className="flex gap-1 truncate">
+                    <dt className="text-muted-foreground">Correo</dt>
+                    <dd className="truncate">
+                      <a href={`mailto:${request.email}`} className="text-brand-amber hover:underline">
+                        {request.email}
+                      </a>
+                    </dd>
+                  </div>
                   {request.phone && (
-                    <p className="truncate">
-                      <span className="text-muted-foreground">Tel: </span>
-                      {request.phone}
-                    </p>
+                    <div className="flex gap-1 truncate">
+                      <dt className="text-muted-foreground">Tel.</dt>
+                      <dd>
+                        <a href={`tel:${request.phone}`} className="hover:underline">
+                          {request.phone}
+                        </a>
+                      </dd>
+                    </div>
                   )}
-                  <p className="truncate">
-                    <span className="text-muted-foreground">Liga: </span>
-                    {seasonLabel(request.seasons) || "—"}
-                  </p>
-                  {request.kind === "coach" ? (
-                    <p className="truncate">
-                      <span className="text-muted-foreground">Equipo: </span>
-                      {request.team_name ?? "—"}
-                    </p>
-                  ) : (
-                    <p className="truncate">
-                      <span className="text-muted-foreground">Quiere: </span>
-                      {request.preferred_team_id
-                        ? (teamName.get(request.preferred_team_id) ?? "un equipo")
-                        : "Agente libre (busca equipo)"}
-                      {request.position ? ` · ${request.position}` : ""}
-                      {request.jersey_number ? ` · #${request.jersey_number}` : ""}
-                    </p>
-                  )}
-                </div>
+                  <div className="flex gap-1 truncate">
+                    <dt className="text-muted-foreground">{request.kind === "coach" ? "Equipo" : "Quiere"}</dt>
+                    <dd className="truncate">
+                      {request.kind === "coach"
+                        ? (request.team_name ?? "—")
+                        : `${request.preferred_team_id ? (teamName.get(request.preferred_team_id) ?? "un equipo") : "Agente libre"}${request.position ? ` · ${request.position}` : ""}${request.jersey_number ? ` · #${request.jersey_number}` : ""}`}
+                    </dd>
+                  </div>
+                </dl>
                 {request.message && (
-                  <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                    “{request.message}”
-                  </p>
+                  <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">“{request.message}”</p>
                 )}
 
                 {request.status === "approved" && (
                   <div className="flex flex-col gap-2">
                     <p className="text-xs text-brand-silver">
-                      ✓ {request.resolved_team_id ? "Equipo creado" : request.resolved_player_id ? "Jugador agregado al roster" : "Aprobada"}
+                      ✓ {request.resolved_team_id ? "Equipo creado" : request.resolved_player_id ? "Jugador en el roster" : "Aprobada"}
                     </p>
                     {request.resolved_team_id && teamCode.get(request.resolved_team_id) && (
-                      <div className="rounded-lg border border-brand-amber/25 bg-brand-amber/[0.03] p-3">
-                        <p className="mb-2 text-xs text-muted-foreground">
-                          📲 Comparte este link con el coach para que sus
-                          jugadores se auto-agreguen al roster:
-                        </p>
-                        <CopyLink
-                          url={`${siteUrl}/unirse/${teamCode.get(request.resolved_team_id)}`}
-                        />
-                      </div>
+                      <CopyLink label="Link para que sus jugadores se unan" url={`${siteUrl}/unirse/${teamCode.get(request.resolved_team_id)}`} />
                     )}
                   </div>
                 )}
 
                 {open && request.kind === "coach" && (
-                  <form
-                    action={approveCoachRequest}
-                    className="flex flex-col gap-3 rounded-xl border border-brand-amber/25 bg-brand-amber/[0.03] p-3"
-                  >
+                  <form action={approveCoachRequest} className="flex flex-col gap-3 rounded-xl border border-brand-amber/25 bg-brand-amber/[0.03] p-3">
                     <input type="hidden" name="requestId" value={request.id} />
-                    <p className="text-xs font-semibold text-brand-amber">Aprobar y crear equipo</p>
+                    <p className="text-xs font-semibold text-brand-amber">Aprobar: crea el equipo y su inscripción</p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="División">
                         <select name="divisionId" required defaultValue="" className={inputClass}>
@@ -267,54 +236,29 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                           ))}
                         </select>
                       </Field>
-                      <Field label="Slug (URL)">
-                        <input
-                          name="slug"
-                          required
-                          defaultValue={slugify(request.team_name ?? request.full_name)}
-                          className={inputClass}
-                        />
+                      <Field label="URL pública">
+                        <input name="slug" required defaultValue={slugify(request.team_name ?? request.full_name)} className={inputClass} />
                       </Field>
-                      <Field label="Color">
-                        <input
-                          type="color"
-                          name="color"
-                          defaultValue={request.team_color ?? "#2563EB"}
-                          className="h-12 w-full rounded-lg border bg-transparent px-2"
-                        />
-                      </Field>
-                      <Field label="Cuota de inscripción (MXN, opcional)">
-                        <input
-                          type="number"
-                          name="amount"
-                          min="0"
-                          step="0.01"
-                          placeholder="1500"
-                          className={inputClass}
-                        />
-                      </Field>
+                      <div className="grid grid-cols-[auto_1fr] gap-3">
+                        <Field label="Color">
+                          <input type="color" name="color" defaultValue={request.team_color ?? "#2563EB"} className={colorInputClass} />
+                        </Field>
+                        <Field label="Cuota (MXN)">
+                          <input type="number" name="amount" min="0" step="0.01" placeholder="Opcional" className={inputClass} />
+                        </Field>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <SubmitButton>Crear equipo y aprobar</SubmitButton>
-                    </div>
+                    <SubmitButton className="self-start">Crear equipo y aprobar</SubmitButton>
                   </form>
                 )}
 
                 {open && request.kind === "player" && (
-                  <form
-                    action={approvePlayerRequest}
-                    className="flex flex-col gap-3 rounded-xl border border-brand-silver/25 bg-white/[0.02] p-3"
-                  >
+                  <form action={approvePlayerRequest} className="flex flex-col gap-3 rounded-xl border border-brand-silver/25 bg-white/[0.02] p-3">
                     <input type="hidden" name="requestId" value={request.id} />
-                    <p className="text-xs font-semibold text-brand-silver">Aprobar y agregar al roster</p>
+                    <p className="text-xs font-semibold text-brand-silver">Aprobar: crea al jugador y lo pone en el roster</p>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <Field label="Equipo">
-                        <select
-                          name="teamId"
-                          required
-                          defaultValue={request.preferred_team_id ?? ""}
-                          className={inputClass}
-                        >
+                        <select name="teamId" required defaultValue={request.preferred_team_id ?? ""} className={inputClass}>
                           <option value="" disabled>
                             {seasonTeams.length ? "Selecciona" : "No hay equipos aún"}
                           </option>
@@ -325,34 +269,21 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                           ))}
                         </select>
                       </Field>
-                      <Field label="Número" hint="opcional">
-                        <input
-                          name="jerseyNumber"
-                          inputMode="numeric"
-                          maxLength={4}
-                          defaultValue={request.jersey_number ?? ""}
-                          placeholder="Sin asignar"
-                          className={inputClass}
-                        />
+                      <Field label="Número">
+                        <input name="jerseyNumber" inputMode="numeric" maxLength={4} defaultValue={request.jersey_number ?? ""} placeholder="Opcional" className={inputClass} />
                       </Field>
-                      <Field label="Posición (opcional)">
-                        <input
-                          name="position"
-                          defaultValue={request.position ?? ""}
-                          className={inputClass}
-                        />
+                      <Field label="Posición">
+                        <input name="position" defaultValue={request.position ?? ""} placeholder="Opcional" className={inputClass} />
                       </Field>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <SubmitButton>Crear jugador y aprobar</SubmitButton>
-                    </div>
+                    <SubmitButton className="self-start">Crear jugador y aprobar</SubmitButton>
                   </form>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {request.status === "pending" && (
                     <form action={markSignupContacted.bind(null, request.id)}>
-                      <GhostButton>Marcar como contactado</GhostButton>
+                      <GhostButton>Marcar contactado</GhostButton>
                     </form>
                   )}
                   {open && (
@@ -360,9 +291,9 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
                       <GhostButton>Rechazar</GhostButton>
                     </form>
                   )}
-                  <form action={deleteSignup.bind(null, request.id)}>
-                    <ConfirmButton message={`¿Eliminar la solicitud de ${request.full_name}?`}>
-                      Eliminar
+                  <form action={deleteSignup.bind(null, request.id)} className="ml-auto">
+                    <ConfirmButton icon ariaLabel="Eliminar solicitud" message={`¿Eliminar la solicitud de ${request.full_name}?`}>
+                      <Trash2 className="size-4" aria-hidden />
                     </ConfirmButton>
                   </form>
                 </div>

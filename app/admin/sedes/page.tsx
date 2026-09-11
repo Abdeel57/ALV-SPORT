@@ -1,13 +1,7 @@
+import { MapPin, Plus, Trash2, X } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
-import {
-  AdminTitle,
-  EmptyRow,
-  Feedback,
-  Field,
-  SubmitButton,
-  inputClass,
-} from "@/components/admin/ui";
+import { AdminTitle, EmptyRow, Feedback, Field, FormPanel, SubmitButton, inputClass } from "@/components/admin/ui";
 import { deleteCourt, deleteVenue, saveCourt, saveVenue } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 import { sql } from "@/lib/db";
@@ -23,11 +17,11 @@ interface VenueRow {
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; nuevo?: string }>;
 }
 
 export default async function SedesPage({ searchParams }: PageProps) {
-  const { ok, error } = await searchParams;
+  const { ok, error, nuevo } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
 
@@ -43,72 +37,73 @@ export default async function SedesPage({ searchParams }: PageProps) {
   `);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Sedes y campos</AdminTitle>
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+      <AdminTitle count={venues.length} subtitle="Sedes y sus campos">
+        Sedes
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Nueva sede</h2>
+      <FormPanel title="Nueva sede" icon={MapPin} open={nuevo === "1"}>
         <form action={saveVenue} className="grid gap-3 sm:grid-cols-2">
           <Field label="Nombre">
             <input name="name" required placeholder="Deportivo Municipal" className={inputClass} />
           </Field>
           <Field label="Dirección">
-            <input name="address" placeholder="Av. de los Deportes 100" className={inputClass} />
+            <input name="address" placeholder="Opcional" className={inputClass} />
           </Field>
           <div className="sm:col-span-2">
             <SubmitButton>Crear sede</SubmitButton>
           </div>
         </form>
-      </section>
+      </FormPanel>
 
       {venues.length === 0 ? (
-        <EmptyRow>Sin sedes registradas.</EmptyRow>
+        <EmptyRow>Todavía no hay sedes.</EmptyRow>
       ) : (
         venues.map((venue) => (
           <section key={venue.id} className="flex flex-col gap-3 rounded-2xl border p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-display text-lg">{venue.name}</h3>
-              {venue.address && (
-                <span className="text-xs text-muted-foreground">{venue.address}</span>
-              )}
-              <span className="ml-auto">
-                <form action={deleteVenue.bind(null, venue.id)}>
-                  <ConfirmButton message={`¿Eliminar la sede "${venue.name}" y sus campos?`}>
-                    Eliminar
-                  </ConfirmButton>
-                </form>
-              </span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate font-display text-lg leading-tight">{venue.name}</h3>
+                {venue.address && <p className="truncate text-xs text-muted-foreground">{venue.address}</p>}
+              </div>
+              <form action={deleteVenue.bind(null, venue.id)}>
+                <ConfirmButton icon ariaLabel="Eliminar sede" message={`¿Eliminar la sede "${venue.name}" y sus campos?`}>
+                  <Trash2 className="size-4" aria-hidden />
+                </ConfirmButton>
+              </form>
             </div>
             <ul className="flex flex-wrap gap-2">
               {venue.courts.map((court) => (
-                <li
-                  key={court.id}
-                  className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-                >
+                <li key={court.id} className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm">
                   {court.name}
                   <form action={deleteCourt.bind(null, court.id)}>
-                    <button
-                      type="submit"
-                      aria-label={`Eliminar campo ${court.name}`}
-                      className="text-muted-foreground hover:text-destructive"
+                    <ConfirmButton
+                      icon
+                      ariaLabel={`Eliminar campo ${court.name}`}
+                      message={`¿Eliminar el campo ${court.name}?`}
+                      className="size-8 border-0 text-muted-foreground hover:text-destructive"
                     >
-                      ×
-                    </button>
+                      <X className="size-3.5" aria-hidden />
+                    </ConfirmButton>
                   </form>
                 </li>
               ))}
+              <li>
+                <form action={saveCourt} className="flex items-center gap-1.5">
+                  <input type="hidden" name="venueId" value={venue.id} />
+                  <input name="name" required placeholder="Nuevo campo" className={`${inputClass} min-h-10 w-40 text-sm`} aria-label="Nuevo campo" />
+                  <button
+                    type="submit"
+                    aria-label="Agregar campo"
+                    title="Agregar campo"
+                    className="grid size-10 shrink-0 place-items-center rounded-lg border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                  </button>
+                </form>
+              </li>
             </ul>
-            <form action={saveCourt} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="venueId" value={venue.id} />
-              <input
-                name="name"
-                required
-                placeholder="Nuevo campo (ej. Campo 1)"
-                className={`${inputClass} max-w-72`}
-              />
-              <SubmitButton>Agregar</SubmitButton>
-            </form>
           </section>
         ))
       )}

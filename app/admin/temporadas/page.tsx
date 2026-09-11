@@ -1,3 +1,4 @@
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import type { Metadata } from "next";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import {
@@ -5,16 +6,13 @@ import {
   EmptyRow,
   Feedback,
   Field,
+  FormPanel,
+  IconLink,
   StatusChip,
   SubmitButton,
   inputClass,
 } from "@/components/admin/ui";
-import {
-  deleteDivision,
-  deleteSeason,
-  saveDivision,
-  saveSeason,
-} from "@/lib/admin/actions";
+import { deleteDivision, deleteSeason, saveDivision, saveSeason } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
 import { sql } from "@/lib/db";
 
@@ -29,32 +27,28 @@ interface SeasonRow {
   ends_on: string | null;
   league_id: string;
   leagues: { name: string } | null;
-  divisions: { id: string; name: string; sort_order: number }[];
+  divisions: { id: string; name: string; sort_order: number; team_count: number }[];
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string; edit?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; edit?: string; nuevo?: string }>;
 }
 
 export default async function TemporadasPage({ searchParams }: PageProps) {
-  const { ok, error, edit } = await searchParams;
+  const { ok, error, edit, nuevo } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
   const { db } = context;
 
   const [leagues, seasons] = await Promise.all([
-    db.rows<{ id: string; name: string }>(sql`
-      select id, name from public.leagues order by name
-    `),
+    db.rows<{ id: string; name: string }>(sql`select id, name from public.leagues order by name`),
     db.rows<SeasonRow>(sql`
-      select se.id, se.name, se.status::text as status, se.starts_on, se.ends_on,
-             se.league_id,
-             case when l.id is null then null
-                  else json_build_object('name', l.name) end as leagues,
+      select se.id, se.name, se.status::text as status, se.starts_on, se.ends_on, se.league_id,
+             case when l.id is null then null else json_build_object('name', l.name) end as leagues,
              coalesce((
                select json_agg(
-                        json_build_object('id', d.id, 'name', d.name,
-                                          'sort_order', d.sort_order)
+                        json_build_object('id', d.id, 'name', d.name, 'sort_order', d.sort_order,
+                                          'team_count', (select count(*) from public.teams t where t.division_id = d.id))
                         order by d.sort_order
                       )
                  from public.divisions d
@@ -62,26 +56,29 @@ export default async function TemporadasPage({ searchParams }: PageProps) {
              ), '[]'::json) as divisions
         from public.seasons se
         left join public.leagues l on l.id = se.league_id
-       order by se.created_at desc
+       order by l.name, se.created_at desc
     `),
   ]);
   const editing = seasons.find((season) => season.id === edit);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Temporadas y divisiones</AdminTitle>
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+      <AdminTitle count={seasons.length} subtitle="Cada temporada tiene sus divisiones">
+        Temporadas
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">
-          {editing ? `Editar: ${editing.name}` : "Nueva temporada"}
-        </h2>
+      <FormPanel
+        title={editing ? `Editar ${editing.name}` : "Nueva temporada"}
+        open={Boolean(editing) || nuevo === "1"}
+        cancelHref={editing ? "/admin/temporadas" : undefined}
+      >
         <form action={saveSeason} className="grid gap-3 sm:grid-cols-2">
           {editing && <input type="hidden" name="id" value={editing.id} />}
           <Field label="Liga">
             <select name="leagueId" required defaultValue={editing?.league_id ?? ""} className={inputClass}>
               <option value="" disabled>
-                Selecciona una liga
+                Selecciona
               </option>
               {leagues.map((league) => (
                 <option key={league.id} value={league.id}>
@@ -91,7 +88,7 @@ export default async function TemporadasPage({ searchParams }: PageProps) {
             </select>
           </Field>
           <Field label="Nombre">
-            <input name="name" required defaultValue={editing?.name ?? ""} placeholder="Temporada Otoño 2026" className={inputClass} />
+            <input name="name" required defaultValue={editing?.name ?? ""} placeholder="Temporada 2026" className={inputClass} />
           </Field>
           <Field label="Estado">
             <select name="status" defaultValue={editing?.status ?? "draft"} className={inputClass}>
@@ -113,75 +110,69 @@ export default async function TemporadasPage({ searchParams }: PageProps) {
             <SubmitButton>{editing ? "Guardar cambios" : "Crear temporada"}</SubmitButton>
           </div>
         </form>
-      </section>
+      </FormPanel>
 
       {seasons.length === 0 ? (
-        <EmptyRow>Sin temporadas todavía: crea la primera arriba.</EmptyRow>
+        <EmptyRow>Todavía no hay temporadas.</EmptyRow>
       ) : (
         seasons.map((season) => (
           <section key={season.id} className="flex flex-col gap-3 rounded-2xl border p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-display text-lg">{season.name}</h3>
-              <StatusChip status={season.status} />
-              <span className="text-xs text-muted-foreground">
-                {season.leagues?.name}
-              </span>
-              <span className="ml-auto flex gap-2">
-                <a
-                  href={`/admin/temporadas?edit=${season.id}`}
-                  className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
-                >
-                  Editar
-                </a>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="flex flex-wrap items-center gap-2 font-display text-lg leading-tight">
+                  <span className="truncate">{season.name}</span>
+                  <StatusChip status={season.status} />
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {season.leagues?.name}
+                  {season.starts_on ? ` · ${season.starts_on}${season.ends_on ? ` a ${season.ends_on}` : ""}` : ""}
+                </p>
+              </div>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <IconLink href={`/admin/temporadas?edit=${season.id}`} label="Editar" icon={Pencil} />
                 <form action={deleteSeason.bind(null, season.id)}>
-                  <ConfirmButton message={`¿Eliminar la temporada "${season.name}" y todo su contenido?`}>
-                    Eliminar
+                  <ConfirmButton icon ariaLabel="Eliminar" message={`¿Eliminar la temporada "${season.name}" y todo su contenido?`}>
+                    <Trash2 className="size-4" aria-hidden />
                   </ConfirmButton>
                 </form>
               </span>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <p className="text-xs tracking-widest text-muted-foreground uppercase">
-                Divisiones
-              </p>
-              {season.divisions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin divisiones.</p>
-              ) : (
-                <ul className="flex flex-wrap gap-2">
-                  {season.divisions
-                    .sort((a, b) => a.sort_order - b.sort_order)
-                    .map((division) => (
-                      <li
-                        key={division.id}
-                        className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+            <ul className="flex flex-wrap gap-2">
+              {season.divisions
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((division) => (
+                  <li key={division.id} className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm">
+                    <span>{division.name}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{division.team_count} eq.</span>
+                    <form action={deleteDivision.bind(null, division.id)}>
+                      <ConfirmButton
+                        icon
+                        ariaLabel={`Eliminar división ${division.name}`}
+                        message={`¿Eliminar la división ${division.name}?`}
+                        className="size-8 border-0 text-muted-foreground hover:text-destructive"
                       >
-                        {division.name}
-                        <form action={deleteDivision.bind(null, division.id)}>
-                          <button
-                            type="submit"
-                            aria-label={`Eliminar división ${division.name}`}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            ×
-                          </button>
-                        </form>
-                      </li>
-                    ))}
-                </ul>
-              )}
-              <form action={saveDivision} className="flex flex-wrap items-end gap-2">
-                <input type="hidden" name="seasonId" value={season.id} />
-                <input type="hidden" name="sortOrder" value={season.divisions.length} />
-                <input
-                  name="name"
-                  required
-                  placeholder="Nueva división (ej. Primera Fuerza)"
-                  className={`${inputClass} max-w-72`}
-                />
-                <SubmitButton>Agregar</SubmitButton>
-              </form>
-            </div>
+                        <X className="size-3.5" aria-hidden />
+                      </ConfirmButton>
+                    </form>
+                  </li>
+                ))}
+              <li>
+                <form action={saveDivision} className="flex items-center gap-1.5">
+                  <input type="hidden" name="seasonId" value={season.id} />
+                  <input type="hidden" name="sortOrder" value={season.divisions.length} />
+                  <input name="name" required placeholder="Nueva división" className={`${inputClass} min-h-10 w-44 text-sm`} aria-label="Nueva división" />
+                  <button
+                    type="submit"
+                    aria-label="Agregar división"
+                    title="Agregar división"
+                    className="grid size-10 shrink-0 place-items-center rounded-lg border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                  </button>
+                </form>
+              </li>
+            </ul>
           </section>
         ))
       )}

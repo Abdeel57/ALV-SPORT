@@ -1,16 +1,22 @@
+import { ListPlus, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import { ConfirmButton } from "@/components/admin/confirm-button";
 import { TeamOptions, type TeamChoice } from "@/components/admin/team-options";
-import { InitialsAvatar } from "@/components/public/team-initials";
 import {
   AdminTitle,
   EmptyRow,
   Feedback,
   Field,
+  FormPanel,
+  ListRow,
+  RowText,
+  SecondaryLink,
   SubmitButton,
+  fileInputClass,
   inputClass,
 } from "@/components/admin/ui";
+import { InitialsAvatar } from "@/components/public/team-initials";
 import {
   assignToRoster,
   bulkAssignRoster,
@@ -43,32 +49,26 @@ interface TeamRow {
 }
 
 interface PageProps {
-  searchParams: Promise<{ ok?: string; error?: string; q?: string; team?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; q?: string; team?: string; nuevo?: string }>;
 }
 
 export default async function JugadoresPage({ searchParams }: PageProps) {
-  const { ok, error, q = "", team = "" } = await searchParams;
+  const { ok, error, q = "", team = "", nuevo } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
 
   // Con ?team= la lista se vuelve el roster de ese equipo (desde la tarjeta
   // del equipo en /admin/equipos); el EXISTS descarta a quienes no están.
   const search = q.trim();
+  const like = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const filters = [
-    team
-      ? sql`exists (select 1 from public.rosters r
-                     where r.player_id = p.id and r.team_id = ${team})`
-      : null,
-    search.length >= 2
-      ? sql`(p.first_name ilike ${`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`}
-             or p.last_name ilike ${`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`})`
-      : null,
+    team ? sql`exists (select 1 from public.rosters r where r.player_id = p.id and r.team_id = ${team})` : null,
+    search.length >= 2 ? sql`(p.first_name ilike ${like} or p.last_name ilike ${like})` : null,
   ].filter((part): part is SqlQuery => part !== null);
   const where = filters.length > 0 ? join(filters, " and ") : sql`true`;
-  // Con ?team= el roster listado es solo el de ese equipo.
   const rosterFilter = team ? sql`and r.team_id = ${team}` : empty;
 
-  const [players, teamRows] = await Promise.all([
+  const [players, totalRow, teamRows] = await Promise.all([
     context.db.rows<PlayerRow>(sql`
       select p.id, p.first_name, p.last_name, p.photo_url,
              coalesce((
@@ -86,10 +86,10 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
              ), '[]'::json) as rosters
         from public.players p
        where ${where}
-       order by p.last_name
+       order by p.last_name, p.first_name
        limit 50
     `),
-    // Equipos con su categoría (liga) para agrupar los selectores.
+    context.db.one<{ total: number }>(sql`select count(*)::int as total from public.players p where ${where}`),
     context.db.rows<TeamRow>(sql`
       select t.id, t.name, l.name as category
         from public.teams t
@@ -99,20 +99,22 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
        order by l.name nulls last, t.name
     `),
   ]);
-  const teams: TeamChoice[] = teamRows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    category: row.category ?? "Sin categoría",
-  }));
+  const teams: TeamChoice[] = teamRows.map((row) => ({ id: row.id, name: row.name, category: row.category ?? "Sin categoría" }));
   const rosterTeam = team ? teams.find((row) => row.id === team) : undefined;
+  const total = totalRow.total;
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle>Jugadores</AdminTitle>
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+      <AdminTitle
+        count={total}
+        subtitle={rosterTeam ? `Roster de ${rosterTeam.name}` : undefined}
+        back={rosterTeam ? { href: "/admin/jugadores", label: "Todos los jugadores" } : undefined}
+      >
+        Jugadores
+      </AdminTitle>
       <Feedback ok={ok} error={error} />
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Nuevo jugador</h2>
+      <FormPanel title="Nuevo jugador" open={nuevo === "1"}>
         <form action={savePlayer} className="grid gap-3 sm:grid-cols-2">
           <Field label="Nombre">
             <input name="firstName" required className={inputClass} />
@@ -120,37 +122,30 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
           <Field label="Apellido">
             <input name="lastName" required className={inputClass} />
           </Field>
-          <Field label="Equipo" hint="Queda en el roster de ese equipo al crearlo.">
+          <Field label="Equipo">
             <select name="teamId" defaultValue={team || ""} className={inputClass}>
               <option value="">Sin equipo por ahora</option>
               <TeamOptions teams={teams} />
             </select>
           </Field>
-          <Field label="Número (opcional)">
-            <input name="jerseyNumber" inputMode="numeric" maxLength={4} placeholder="23" className={inputClass} />
+          <Field label="Número">
+            <input name="jerseyNumber" inputMode="numeric" maxLength={4} placeholder="Opcional" className={inputClass} />
           </Field>
-          <Field label="Fecha de nacimiento (opcional)">
+          <Field label="Fecha de nacimiento">
             <input type="date" name="birthdate" className={inputClass} />
           </Field>
-          <Field label="Foto (opcional)">
-            <input type="file" name="photo" accept="image/*" className={`${inputClass} py-2.5`} />
+          <Field label="Foto">
+            <input type="file" name="photo" accept="image/*" className={fileInputClass} />
           </Field>
           <div className="sm:col-span-2">
             <SubmitButton>Crear jugador</SubmitButton>
           </div>
         </form>
-      </section>
+      </FormPanel>
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Alta por lista (roster completo)</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Pega la lista del equipo: un jugador por línea, número de playera
-          opcional al inicio o al final. Los nombres que ya existen se
-          reutilizan (no se duplican) y quien ya esté en un roster de la misma
-          división se omite.
-        </p>
-        <form action={bulkAssignRoster} className="grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <FormPanel title="Alta por lista" icon={ListPlus} tone="ghost">
+          <form action={bulkAssignRoster} className="flex flex-col gap-3">
             <Field label="Equipo">
               <select name="teamId" required defaultValue={team || ""} className={inputClass}>
                 <option value="" disabled>
@@ -159,149 +154,125 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
                 <TeamOptions teams={teams} />
               </select>
             </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Lista de jugadores">
+            <Field label="Lista" hint="Un jugador por línea, número opcional. Los que ya existen se reutilizan.">
               <textarea
                 name="list"
                 required
-                rows={8}
+                rows={6}
                 placeholder={"23 Juan Pérez\nMaría López #10\nPedro Ramírez"}
-                className={`${inputClass} min-h-40 py-2.5`}
+                className={`${inputClass} min-h-32 py-2.5`}
               />
             </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <SubmitButton>Agregar lista al equipo</SubmitButton>
-          </div>
-        </form>
-      </section>
+            <SubmitButton className="self-start">Agregar al equipo</SubmitButton>
+          </form>
+        </FormPanel>
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="mb-3 font-display text-xl">Asignar a roster</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Elegibilidad: un jugador no puede estar en dos equipos de la misma
-          división; los suspendidos no podrán ser titulares en la mesa.
-        </p>
-        <form action={assignToRoster} className="grid gap-3 sm:grid-cols-4">
-          <Field label="Jugador">
-            <select name="playerId" required defaultValue="" className={inputClass}>
-              <option value="" disabled>
-                Selecciona
-              </option>
-              {players.map((player) => (
-                <option key={player.id} value={player.id}>
-                  {player.last_name} {player.first_name}
+        <FormPanel title="Asignar a un equipo" icon={UserPlus} tone="ghost">
+          <form action={assignToRoster} className="flex flex-col gap-3">
+            <Field label="Jugador">
+              <select name="playerId" required defaultValue="" className={inputClass}>
+                <option value="" disabled>
+                  Selecciona
                 </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Equipo">
-            <select name="teamId" required defaultValue={team || ""} className={inputClass}>
-              <option value="" disabled>
-                Selecciona
-              </option>
-              <TeamOptions teams={teams} />
-            </select>
-          </Field>
-          <Field label="Número" hint="opcional">
-            <input
-              name="jerseyNumber"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="23"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Posición (opcional)">
-            <input name="position" placeholder="SS" className={inputClass} />
-          </Field>
-          <div className="sm:col-span-4">
-            <SubmitButton>Asignar al roster</SubmitButton>
-          </div>
-        </form>
-      </section>
+                {players.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.last_name} {player.first_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Equipo">
+              <select name="teamId" required defaultValue={team || ""} className={inputClass}>
+                <option value="" disabled>
+                  Selecciona
+                </option>
+                <TeamOptions teams={teams} />
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Número">
+                <input name="jerseyNumber" inputMode="numeric" maxLength={4} placeholder="Opcional" className={inputClass} />
+              </Field>
+              <Field label="Posición">
+                <input name="position" placeholder="SS" className={inputClass} />
+              </Field>
+            </div>
+            <SubmitButton className="self-start">Asignar</SubmitButton>
+          </form>
+        </FormPanel>
+      </div>
 
-      <section className="flex flex-col gap-3">
-        {rosterTeam && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-amber/40 bg-secondary/50 px-4 py-3">
-            <p className="text-sm">
-              <span className="text-muted-foreground">Roster de </span>
-              <span className="font-display text-base">{rosterTeam.name}</span>
-              <span className="text-muted-foreground"> · {players.length} jugador{players.length === 1 ? "" : "es"}</span>
-            </p>
-            <a
-              href="/admin/jugadores"
-              className="flex min-h-11 items-center rounded-lg border px-3 text-sm text-muted-foreground hover:bg-muted"
-            >
-              Ver todos
-            </a>
-          </div>
-        )}
-        <form className="flex gap-2" action="/admin/jugadores">
-          {team && <input type="hidden" name="team" value={team} />}
+      <form className="flex gap-2" action="/admin/jugadores" role="search">
+        {team && <input type="hidden" name="team" value={team} />}
+        <label className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             type="search"
             name="q"
             defaultValue={q}
-            placeholder={rosterTeam ? `Buscar en ${rosterTeam.name}…` : "Buscar jugador…"}
-            className={`${inputClass} max-w-72`}
+            placeholder={rosterTeam ? `Buscar en ${rosterTeam.name}` : "Buscar jugador"}
+            className={`${inputClass} pl-9`}
+            aria-label="Buscar jugador"
           />
-          <SubmitButton>Buscar</SubmitButton>
-        </form>
+        </label>
+        <SubmitButton className="min-h-12 px-4">Buscar</SubmitButton>
+        {search && <SecondaryLink href={team ? `/admin/jugadores?team=${team}` : "/admin/jugadores"}>Limpiar</SecondaryLink>}
+      </form>
 
-        {players.length === 0 ? (
-          <EmptyRow>
-            Sin jugadores{q ? ` para “${q}”` : ""}
-            {rosterTeam ? ` en el roster de ${rosterTeam.name}` : ""}.
-          </EmptyRow>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {players.map((player) => (
-              <li key={player.id} className="flex items-center gap-3 rounded-xl border px-4 py-3">
-                {player.photo_url ? (
-                  <Image
-                    src={player.photo_url}
-                    alt=""
-                    width={40}
-                    height={40}
-                    className="size-10 rounded-full border object-cover"
-                  />
-                ) : (
-                  <InitialsAvatar
-                    name={`${player.first_name} ${player.last_name}`}
-                    className="size-10 border text-sm"
-                  />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {player.first_name} {player.last_name}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {player.rosters.length === 0
-                      ? "Sin equipo"
-                      : player.rosters
-                          .map((entry) => `#${entry.jersey_number ?? "—"} ${entry.teams?.name ?? ""}`)
-                          .join(" · ")}
-                  </span>
-                </span>
-                {player.rosters.map((entry) => (
-                  <form key={entry.id} action={removeFromRoster.bind(null, entry.id)}>
-                    <ConfirmButton message={`¿Quitar a ${player.first_name} de ${entry.teams?.name ?? "su equipo"}?`}>
-                      Quitar de {entry.teams?.name ?? "equipo"}
+      {players.length === 0 ? (
+        <EmptyRow>
+          Sin jugadores{q ? ` para “${q}”` : ""}
+          {rosterTeam ? ` en ${rosterTeam.name}` : ""}.
+        </EmptyRow>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {players.map((player) => (
+            <ListRow
+              key={player.id}
+              actions={
+                <>
+                  {player.rosters.map((entry) => (
+                    <form key={entry.id} action={removeFromRoster.bind(null, entry.id)}>
+                      <ConfirmButton
+                        icon
+                        ariaLabel={`Quitar de ${entry.teams?.name ?? "su equipo"}`}
+                        message={`¿Quitar a ${player.first_name} de ${entry.teams?.name ?? "su equipo"}?`}
+                        className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <UserMinus className="size-4" aria-hidden />
+                      </ConfirmButton>
+                    </form>
+                  ))}
+                  <form action={deletePlayer.bind(null, player.id)}>
+                    <ConfirmButton icon ariaLabel="Eliminar jugador" message={`¿Eliminar a ${player.first_name} ${player.last_name}?`}>
+                      <Trash2 className="size-4" aria-hidden />
                     </ConfirmButton>
                   </form>
-                ))}
-                <form action={deletePlayer.bind(null, player.id)}>
-                  <ConfirmButton message={`¿Eliminar a ${player.first_name} ${player.last_name}?`}>
-                    Eliminar
-                  </ConfirmButton>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                </>
+              }
+            >
+              {player.photo_url ? (
+                <Image src={player.photo_url} alt="" width={40} height={40} className="size-10 shrink-0 rounded-full border object-cover" />
+              ) : (
+                <InitialsAvatar name={`${player.first_name} ${player.last_name}`} className="size-10 shrink-0 border text-sm" />
+              )}
+              <RowText
+                title={`${player.first_name} ${player.last_name}`}
+                meta={
+                  player.rosters.length === 0
+                    ? "Sin equipo"
+                    : player.rosters.map((entry) => `${entry.jersey_number ? `#${entry.jersey_number} ` : ""}${entry.teams?.name ?? ""}`).join(" · ")
+                }
+              />
+            </ListRow>
+          ))}
+        </ul>
+      )}
+      {total > players.length && (
+        <p className="text-center text-xs text-muted-foreground">
+          Se muestran {players.length} de {total}. Usa la búsqueda para encontrar al resto.
+        </p>
+      )}
     </main>
   );
 }

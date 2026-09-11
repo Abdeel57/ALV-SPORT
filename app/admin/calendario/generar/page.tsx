@@ -14,7 +14,7 @@ import { sql } from "@/lib/db";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { seasonLabel } from "@/lib/utils";
 
-export const metadata: Metadata = { title: "Generar sugerencias" };
+export const metadata: Metadata = { title: "Generar rol" };
 export const dynamic = "force-dynamic";
 
 const WEEKDAYS = [
@@ -120,8 +120,8 @@ export default async function GenerarPage({
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <AdminTitle subtitle="El algoritmo propone el rol completo; tú eliges qué se publica.">
-        Generar sugerencias
+      <AdminTitle subtitle="Propone el rol completo; tú eliges qué se publica" back={{ href: "/admin/calendario", label: "Calendario" }}>
+        Generar rol
       </AdminTitle>
       <Feedback
         error={typeof params.error === "string" ? params.error : previewError ?? undefined}
