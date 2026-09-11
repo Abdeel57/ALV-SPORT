@@ -41,6 +41,8 @@ export interface QueueState {
 export type QueueAction =
   | { type: "hydrate"; events: readonly QueuedEvent[] }
   | { type: "enqueue"; event: QueuedEventInput }
+  /** Una jugada completa entra en un solo dispatch: todos sus eventos o ninguno. */
+  | { type: "enqueue_many"; events: readonly QueuedEventInput[] }
   | { type: "mark_synced"; ids: readonly string[] }
   | { type: "mark_failed"; ids: readonly string[]; error: string }
   | { type: "prune_synced"; ids?: readonly string[] };

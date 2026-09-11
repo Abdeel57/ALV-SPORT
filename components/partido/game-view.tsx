@@ -37,6 +37,9 @@ interface ServerEventRow {
   corrects_event_id: string | null;
 }
 
+/** Lanzamientos y eventos de control no son "jugadas" para el público. */
+const HIDDEN_IN_TIMELINE = new Set(["pitch_ball", "pitch_strike", "pitch_foul", "rbi", "defensive_change", "half_inning_end"]);
+
 function mapRow(row: ServerEventRow): EngineGameEvent {
   return {
     id: row.id,
@@ -182,7 +185,7 @@ export function GameView({
   const comparison = useMemo(() => {
     const counts = new Map<string, { away: number; home: number }>();
     for (const event of effective) {
-      if (!event.teamId) continue;
+      if (!event.teamId || HIDDEN_IN_TIMELINE.has(event.eventType)) continue;
       const entry = counts.get(event.eventType) ?? { away: 0, home: 0 };
       if (event.teamId === game.away.id) entry.away += 1;
       else if (event.teamId === game.home.id) entry.home += 1;
@@ -193,7 +196,8 @@ export function GameView({
       .filter((row) => row.away + row.home > 0);
   }, [effective, sportConfig, game.away.id, game.home.id]);
 
-  const timeline = [...effective].reverse();
+  // Lanzamientos y eventos de control no son "jugadas" para el público.
+  const timeline = effective.filter((event) => !HIDDEN_IN_TIMELINE.has(event.eventType)).reverse();
 
   function shareText(): string {
     const away = `${game.away.name} ${awayScore ?? ""}`.trim();

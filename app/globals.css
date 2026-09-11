@@ -426,3 +426,76 @@ input[type="reset"] {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
+
+/* ---------------------------------------------------------------------
+   Libreta de anotación: una hoja clara dentro de la app oscura. Los
+   colores de marca son acentos (out = rojo, destacado = ámbar); la hoja
+   busca el contraste de papel con líneas y símbolos legibles.
+   --------------------------------------------------------------------- */
+:root {
+  --sheet-bg: #f8f6f1;
+  --sheet-bg-alt: #efece4;
+  --sheet-ink: #17181a;
+  --sheet-muted: #6b6f76;
+  --sheet-line: #d6d0c4;
+  --sheet-line-strong: #a39d90;
+  --sheet-hit: #1f8a4c;
+  --sheet-out: #c62828;
+  --sheet-walk: #2f6fd6;
+  --sheet-error: #d9700b;
+  --sheet-run: #f5a50b;
+  --sheet-active: rgb(245 165 11 / 0.22);
+  --sheet-select: #2f6fd6;
+  --pos-infield: #2f6fd6;
+  --pos-outfield: #1f8a4c;
+  --pos-sf: #b98a00;
+  --pos-role: #c62828;
+}
+
+@utility sheet {
+  background: var(--sheet-bg);
+  color: var(--sheet-ink);
+  color-scheme: light;
+}
+
+@utility sheet-line {
+  border-color: var(--sheet-line);
+}
+
+/* Impresión de la libreta y el box score: solo la hoja, en blanco. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .sheet {
+    background: #fff !important;
+  }
+}
+.print-only {
+  display: none;
+}
+
+/* Impresión de la mesa: la hoja fluye completa y el reporte se imprime en su lugar. */
+@media print {
+  .print-flow {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .print-static {
+    position: static !important;
+  }
+  .print-static > [role="dialog"] {
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+  }
+}

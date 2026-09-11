@@ -16,6 +16,14 @@ export interface GameMeta {
   half: "top" | "bottom" | null;
   /** Por teamId: ids de jugadores titulares en orden al bat. */
   lineups: Record<string, string[]>;
+  /**
+   * Alineación completa (puesto, posición y rol) por teamId. Es lo que usa
+   * la libreta; `lineups` se conserva por compatibilidad con metas viejas.
+   */
+  lineupSlots?: Record<
+    string,
+    { playerId: string; slot: number | null; position: string | null; role: string }[]
+  >;
   /** Equipo activo en el riel (clave para deportes sin innings). */
   activeTeamId?: string | null;
   updatedAt: string;

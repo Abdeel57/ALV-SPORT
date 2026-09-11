@@ -42,10 +42,22 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   const { store, upload, batchSize = 25, isOnline = defaultIsOnline } = options;
   let inFlight: Promise<FlushResult> | null = null;
 
+  const playIdOf = (event: QueuedEvent): string | null =>
+    typeof event.payload.playId === "string" ? event.payload.playId : null;
+
   async function doFlush(): Promise<FlushResult> {
     let uploaded = 0;
     for (;;) {
-      const batch = pendingEvents(store.getState()).slice(0, batchSize);
+      const pending = pendingEvents(store.getState());
+      // Un lote nunca parte una jugada: si el corte cae a mitad de un
+      // playId, se extiende hasta incluir la jugada completa. Así el
+      // servidor la inserta entera en una transacción, o no la inserta.
+      let end = Math.min(batchSize, pending.length);
+      const lastPlay = end > 0 ? playIdOf(pending[end - 1]!) : null;
+      while (lastPlay !== null && end < pending.length && playIdOf(pending[end]!) === lastPlay) {
+        end += 1;
+      }
+      const batch = pending.slice(0, end);
       if (batch.length === 0) return { uploaded, error: null };
       try {
         await upload(batch);

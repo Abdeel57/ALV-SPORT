@@ -61,6 +61,24 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       };
     }
 
+    case "enqueue_many": {
+      // Atómico y idempotente: los UUID ya presentes se omiten; los nuevos
+      // entran juntos y en orden, con localSeq consecutivos.
+      const existing = new Set(state.events.map((event) => event.id));
+      const fresh = action.events.filter((event) => !existing.has(event.id));
+      if (fresh.length === 0) return state;
+      let nextSeq = state.events.reduce((max, event) => Math.max(max, event.localSeq), 0);
+      return {
+        events: [
+          ...state.events,
+          ...fresh.map((event) => {
+            nextSeq += 1;
+            return { ...event, status: "pending" as const, localSeq: nextSeq, attempts: 0, lastError: null };
+          }),
+        ],
+      };
+    }
+
     case "mark_synced": {
       const ids = new Set(action.ids);
       return {

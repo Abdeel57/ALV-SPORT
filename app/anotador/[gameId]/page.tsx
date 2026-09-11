@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { AnotadorConsole } from "@/components/anotador/console";
 import type {
   ConsoleTeam,
+  LineupSlotInput,
+  LineupsInput,
   RosterPlayer,
   ServerEventRow,
 } from "@/components/anotador/types";
@@ -14,6 +16,7 @@ import { sql } from "@/lib/db";
 import { hasDatabaseEnv } from "@/lib/db/pool";
 import { getDb } from "@/lib/db/request";
 import { sportConfigSchema } from "@/lib/engine";
+import { parseRulesProfile } from "@/lib/engine/scorebook";
 import { compareJerseyNumber } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Anotando" };
@@ -41,6 +44,12 @@ interface GameRow {
   scheduled_at: string;
   home_team_id: string;
   away_team_id: string;
+  rules_snapshot: unknown;
+  league_rules: unknown;
+  league_name: string;
+  season_name: string;
+  sport_key: string;
+  sport_config: unknown;
 }
 
 interface TeamRow {
@@ -53,7 +62,17 @@ interface RosterRow {
   team_id: string;
   player_id: string;
   jersey_number: string | null;
-  players: { first_name: string; last_name: string } | null;
+  position: string | null;
+  first_name: string | null;
+  last_name: string | null;
+}
+
+interface LineupRow {
+  team_id: string;
+  player_id: string;
+  batting_order: number | null;
+  position: string | null;
+  lineup_role: string;
 }
 
 function sortRoster(a: RosterPlayer, b: RosterPlayer): number {
@@ -61,6 +80,19 @@ function sortRoster(a: RosterPlayer, b: RosterPlayer): number {
   const byJersey = compareJerseyNumber(a.jerseyNumber, b.jerseyNumber);
   if (byJersey !== 0) return byJersey;
   return a.lastName.localeCompare(b.lastName);
+}
+
+function toLineupSlot(row: LineupRow): LineupSlotInput {
+  const role =
+    row.lineup_role === "EP" || row.lineup_role === "DH" || row.lineup_role === "FLEX"
+      ? row.lineup_role
+      : "starter";
+  return {
+    playerId: row.player_id,
+    slot: row.batting_order,
+    position: row.position,
+    role,
+  };
 }
 
 export default async function AnotadorGamePage({ params }: PageProps) {
@@ -86,18 +118,24 @@ export default async function AnotadorGamePage({ params }: PageProps) {
 
   const db = await getDb();
   const game = await db.maybeOne<GameRow>(sql`
-    select id, season_id, status::text as status, scheduled_at,
-           home_team_id, away_team_id
-      from public.games
-     where id = ${gameId}
+    select g.id, g.season_id, g.status::text as status, g.scheduled_at,
+           g.home_team_id, g.away_team_id, g.rules_snapshot,
+           l.rules as league_rules, l.name as league_name, se.name as season_name,
+           sp.key as sport_key, sp.config as sport_config
+      from public.games g
+      join public.seasons se on se.id = g.season_id
+      join public.leagues l on l.id = se.league_id
+      join public.sports sp on sp.id = l.sport_id
+     where g.id = ${gameId}
      limit 1
   `);
   if (!game) {
     return <Notice>El partido no existe o no tienes acceso.</Notice>;
   }
 
-  if (game.status === "finalized" || game.status === "canceled") {
-    return <Notice>Este partido ya no se puede anotar (estado: {game.status}).</Notice>;
+  const manager = await isOrgManager(db, user.id);
+  if (game.status === "canceled") {
+    return <Notice>Este partido está cancelado y no se puede anotar.</Notice>;
   }
 
   const assignment = await db.maybeOne<{ id: string }>(sql`
@@ -105,7 +143,7 @@ export default async function AnotadorGamePage({ params }: PageProps) {
      where game_id = ${gameId} and user_id = ${user.id} and role = 'scorekeeper'
      limit 1
   `);
-  if (!assignment && !(await isOrgManager(db, user.id))) {
+  if (!assignment && !manager) {
     return (
       <Notice>
         No estás asignado como anotador de este partido. Pide la asignación al
@@ -114,43 +152,74 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     );
   }
 
-  // Config del deporte: partido → temporada → liga → deporte.
-  const sport = await db.maybeOne<{ key: string; config: unknown }>(sql`
-    select sp.key, sp.config
-      from public.seasons se
-      join public.leagues l on l.id = se.league_id
-      join public.sports sp on sp.id = l.sport_id
-     where se.id = ${game.season_id}
-     limit 1
-  `);
-  if (!sport) {
-    return <Notice>No se pudo cargar la configuración del deporte.</Notice>;
-  }
-  const sportConfig = sportConfigSchema.parse(sport.config);
+  const sportConfig = sportConfigSchema.parse(game.sport_config);
+  const snapshot = parseRulesProfile(game.rules_snapshot);
+  const league = parseRulesProfile(game.league_rules);
+  const rules = game.rules_snapshot ? snapshot.rules : league.rules;
+  const rulesSource: "snapshot" | "league" | "default" = game.rules_snapshot
+    ? "snapshot"
+    : game.league_rules
+      ? "league"
+      : "default";
 
   const teamIds = [game.home_team_id, game.away_team_id];
-  const teamRows = await db.rows<TeamRow>(sql`
-    select id, name, color from public.teams where id = any(${teamIds}::uuid[])
-  `);
+  const [teamRows, rosterRows, lineupRows, eventRows, sanctionedRows, previousRows] = await Promise.all([
+    db.rows<TeamRow>(sql`
+      select id, name, color from public.teams where id = any(${teamIds}::uuid[])
+    `),
+    db.rows<RosterRow>(sql`
+      select r.team_id, r.player_id, r.jersey_number, r.position,
+             p.first_name, p.last_name
+        from public.rosters r
+        join public.players p on p.id = r.player_id
+       where r.team_id = any(${teamIds}::uuid[]) and r.status = 'active'
+    `),
+    db.rows<LineupRow>(sql`
+      select team_id, player_id, batting_order, position, lineup_role
+        from public.game_lineups
+       where game_id = ${gameId}
+       order by batting_order nulls last
+    `),
+    db.rows<ServerEventRow>(sql`
+      select id, seq, game_id, team_id, player_id, event_type, payload, period,
+             clock_seconds, corrects_event_id, created_by, created_at
+        from public.game_events
+       where game_id = ${gameId}
+       order by seq
+    `),
+    db.rows<{ player_id: string | null }>(sql`
+      select public.sanctioned_players_for_game(${gameId}) as player_id
+    `),
+    // Última alineación de cada equipo en otro partido ya iniciado.
+    db.rows<LineupRow & { game_id: string }>(sql`
+      select gl.team_id, gl.player_id, gl.batting_order, gl.position, gl.lineup_role, gl.game_id
+        from public.game_lineups gl
+        join public.games g on g.id = gl.game_id
+       where gl.team_id = any(${teamIds}::uuid[])
+         and gl.game_id <> ${gameId}
+         and g.status in ('in_progress', 'finalized')
+         and g.scheduled_at = (
+           select max(g2.scheduled_at)
+             from public.games g2
+             join public.game_lineups gl2 on gl2.game_id = g2.id
+            where gl2.team_id = gl.team_id
+              and g2.id <> ${gameId}
+              and g2.status in ('in_progress', 'finalized')
+         )
+       order by gl.batting_order nulls last
+    `),
+  ]);
+
   const teamsById = new Map(teamRows.map((team) => [team.id, team]));
-
-  const rosterRows = await db.rows<RosterRow>(sql`
-    select r.team_id, r.player_id, r.jersey_number,
-           json_build_object('first_name', p.first_name,
-                             'last_name', p.last_name) as players
-      from public.rosters r
-      join public.players p on p.id = r.player_id
-     where r.team_id = any(${teamIds}::uuid[]) and r.status = 'active'
-  `);
-
   const rosterByTeam = new Map<string, RosterPlayer[]>();
   for (const row of rosterRows) {
     const list = rosterByTeam.get(row.team_id) ?? [];
     list.push({
       playerId: row.player_id,
-      firstName: row.players?.first_name ?? "—",
-      lastName: row.players?.last_name ?? "",
+      firstName: row.first_name ?? "—",
+      lastName: row.last_name ?? "",
       jerseyNumber: row.jersey_number,
+      position: row.position,
     });
     rosterByTeam.set(row.team_id, list);
   }
@@ -162,52 +231,39 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     roster: (rosterByTeam.get(teamId) ?? []).sort(sortRoster),
   });
 
-  const eventRows = await db.rows<ServerEventRow>(sql`
-    select id, seq, game_id, team_id, player_id, event_type, payload, period,
-           clock_seconds, corrects_event_id, created_by, created_at
-      from public.game_events
-     where game_id = ${gameId}
-     order by seq
-  `);
-
-  // Suspendidos por sanción: la mesa los deshabilita como titulares (y las
-  // políticas de game_lineups lo rechazan de todos modos).
-  const sanctionedRows = await db.rows<{ player_id: string | null }>(sql`
-    select public.sanctioned_players_for_game(${gameId}) as player_id
-  `);
-  const sanctionedPlayerIds = sanctionedRows
-    .map((row) => row.player_id)
-    .filter((id): id is string => Boolean(id));
-
-  // Alineaciones ya confirmadas: permiten continuar el partido desde otro
-  // dispositivo (IndexedDB local tiene prioridad si existe).
-  const lineupRows = await db.rows<{
-    team_id: string;
-    player_id: string;
-    batting_order: number | null;
-  }>(sql`
-    select team_id, player_id, batting_order
-      from public.game_lineups
-     where game_id = ${gameId} and is_starter
-     order by batting_order
-  `);
-  const initialLineups: Record<string, string[]> = {};
+  const initialLineups: LineupsInput = {};
   for (const row of lineupRows) {
-    (initialLineups[row.team_id] ??= []).push(row.player_id);
+    (initialLineups[row.team_id] ??= []).push(toLineupSlot(row));
+  }
+  const previousLineups: LineupsInput = {};
+  for (const row of previousRows) {
+    (previousLineups[row.team_id] ??= []).push(toLineupSlot(row));
   }
 
   return (
     <AnotadorConsole
       mode="live"
       userId={user.id}
-      game={{ id: game.id, status: game.status, scheduledAt: game.scheduled_at }}
+      game={{
+        id: game.id,
+        status: game.status,
+        scheduledAt: game.scheduled_at,
+        leagueName: game.league_name,
+        seasonName: game.season_name,
+      }}
       homeTeam={buildTeam(game.home_team_id)}
       awayTeam={buildTeam(game.away_team_id)}
-      sportKey={sport.key}
+      sportKey={game.sport_key}
       sportConfig={sportConfig}
+      rules={rules}
+      rulesSource={rulesSource}
       initialEvents={eventRows}
       initialLineups={initialLineups}
-      sanctionedPlayerIds={sanctionedPlayerIds}
+      previousLineups={previousLineups}
+      sanctionedPlayerIds={sanctionedRows
+        .map((row) => row.player_id)
+        .filter((id): id is string => Boolean(id))}
+      isManager={manager}
     />
   );
 }

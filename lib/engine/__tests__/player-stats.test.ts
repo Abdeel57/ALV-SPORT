@@ -10,7 +10,8 @@ describe("computePlayerStats — softbol (juego 1, expectativas a mano)", () => 
 
   it("línea completa del jugador 1 de Coyotes", () => {
     expect(stats.get(playerId(1, 1))).toEqual({
-      R: 2, H: 3, AB: 4, "2B": 1, "3B": 0, HR: 0, SO: 1, BB: 0, RBI: 0, E: 0,
+      R: 2, H: 3, AB: 4, "2B": 1, "3B": 0, HR: 0, SO: 1, BB: 0, HBP: 0, RBI: 0,
+      SF: 0, SH: 0, SB: 0, CS: 0, E: 0,
     });
   });
 

@@ -3,14 +3,17 @@ import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { insertRows, sql, type SqlValue } from "@/lib/db";
 import { getDb } from "@/lib/db/request";
+import { CORRECTION_EVENT_TYPE, sportConfigSchema, validateEventPayload } from "@/lib/engine";
 
 /**
  * Eventos de la mesa de anotación.
  *
- * Antes el navegador escribía directo en la base a través de PostgREST;
- * ahora pasa por aquí. Las reglas NO cambian: la consulta corre con la
- * identidad del anotador, así que las mismas políticas RLS deciden si
- * puede insertar (asignado + partido en progreso, o admin de la liga).
+ * El navegador no escribe en la base: manda la jugada completa aquí y el
+ * servidor la inserta en UNA transacción (todos los eventos o ninguno). La
+ * consulta corre con la identidad del anotador, así que las mismas
+ * políticas RLS deciden si puede anotar (asignado + partido en progreso, o
+ * admin de la liga). Además se valida contra el config del deporte: un
+ * tipo de evento que no existe para ese deporte se rechaza.
  */
 
 export const dynamic = "force-dynamic";
@@ -52,9 +55,52 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+  const events = parsed.data.events;
+
+  // Un lote pertenece a UN partido: mezclar partidos sería un error de cliente.
+  const gameIds = new Set(events.map((event) => event.gameId));
+  if (gameIds.size !== 1) {
+    return NextResponse.json({ error: "Todos los eventos deben ser del mismo partido" }, { status: 400 });
+  }
+  const gameId = events[0]!.gameId;
+
+  const db = await getDb();
+
+  // Validación contra el config del deporte (misma fuente que la libreta).
+  let config: ReturnType<typeof sportConfigSchema.parse>;
+  try {
+    const row = await db.maybeOne<{ config: unknown }>(sql`
+      select sp.config
+        from public.games g
+        join public.seasons s on s.id = g.season_id
+        join public.leagues l on l.id = s.league_id
+        join public.sports sp on sp.id = l.sport_id
+       where g.id = ${gameId}
+       limit 1
+    `);
+    if (!row) return NextResponse.json({ error: "El partido no existe o no tienes acceso" }, { status: 404 });
+    config = sportConfigSchema.parse(row.config);
+  } catch (error) {
+    return failed(error);
+  }
+  for (const event of events) {
+    if (event.eventType === CORRECTION_EVENT_TYPE) {
+      if (!event.correctsEventId) {
+        return NextResponse.json({ error: "Una corrección debe indicar el evento que corrige" }, { status: 400 });
+      }
+      continue;
+    }
+    const validation = validateEventPayload(event.eventType, event.payload, config);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: `Evento inválido (${event.eventType}): ${validation.errors[0]}` },
+        { status: 400 },
+      );
+    }
+  }
 
   // created_by lo pone el servidor: el RLS exige que sea el usuario en sesión.
-  const rows: Record<string, SqlValue>[] = parsed.data.events.map((event) => ({
+  const rows: Record<string, SqlValue>[] = events.map((event) => ({
     id: event.id,
     game_id: event.gameId,
     team_id: event.teamId,
@@ -69,7 +115,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }));
 
   try {
-    const db = await getDb();
+    // Una sola sentencia = una transacción: la jugada entra completa o no entra.
     await db.exec(sql`
       insert into public.game_events ${insertRows(rows)}
       on conflict (id) do nothing
