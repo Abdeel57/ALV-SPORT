@@ -1,5 +1,10 @@
 # Migración a dos servicios — guía de corte
 
+> **Estado: pasos 1 a 7 EJECUTADOS en producción el 2026-09-10.** El sitio ya
+> corre sobre la arquitectura nueva. Falta únicamente el **paso 8**: apagar
+> los servicios viejos, que siguen encendidos como red de seguridad. El
+> ahorro en Railway no llega hasta que se pausen.
+
 De **9 servicios** en Railway (Supabase autoalojado) a **2**: la app y Postgres.
 
 > **Nada se borra en el camino.** Los datos se quedan donde están: el mismo
@@ -227,9 +232,11 @@ por la migración aditiva del paso 3 y el cambio de URLs de imagen del paso 5.
 
 ## Qué necesitas de tu lado
 
-- [ ] Poner `AUTH_SECRET` (paso 2). Sin esto no hay inicio de sesión.
-- [ ] Montar el volumen de imágenes (paso 2).
-- [ ] Correr la migración (paso 3) y publicar (paso 4).
-- [ ] Mover las imágenes (paso 5).
-- [ ] Probar el marcador en vivo con un partido real (paso 6).
-- [ ] Apagar los servicios viejos uno por uno (paso 8).
+- [x] ~~Poner `AUTH_SECRET`~~ — generado y guardado en las variables del servicio `app`.
+- [x] ~~Montar el volumen de imágenes~~ — `app-volume` en `/var/lib/alv-media`.
+- [x] ~~Correr la migración y publicar~~ — hecho y verificado.
+- [x] ~~Mover las imágenes~~ — 37 de 37, sirviéndose desde el volumen.
+- [ ] **Probar el marcador en vivo con un partido real** (paso 6). La cadena
+      completa quedó probada con un aviso manual, pero conviene verlo con
+      anotación real en el próximo juego.
+- [ ] **Apagar los servicios viejos uno por uno** (paso 8). Aquí llega el ahorro.
