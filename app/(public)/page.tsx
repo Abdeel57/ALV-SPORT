@@ -6,10 +6,9 @@ import { EmptyState, LeagueChips, SectionTitle } from "@/components/public/bits"
 import { GameCard } from "@/components/public/game-card";
 import { HeroGame } from "@/components/public/hero-game";
 import { JoinCta } from "@/components/public/join-cta";
-import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { StandingsTable } from "@/components/public/standings-table";
 import { getPublicData } from "@/lib/data";
-import { getPublishedNews, getSponsors } from "@/lib/data/extras";
+import { getPublishedNews, getSponsors, pickPresenter } from "@/lib/data/extras";
 
 export const revalidate = 60;
 
@@ -32,9 +31,11 @@ export default async function Home({ searchParams }: HomeProps) {
 
 async function HomeContent({ liga }: { liga: string | undefined }) {
   // Solo el contenido principal (hero, en vivo, tabla, líderes) bloquea el
-  // render; noticias y patrocinadores fluyen aparte con <Suspense> para que
-  // lo de arriba pinte antes.
-  const data = await getPublicData().getHome(liga);
+  // render; las noticias fluyen aparte con <Suspense> para que lo de arriba
+  // pinte antes. Los patrocinadores ya los pidió el layout (misma consulta,
+  // memorizada por petición).
+  const [data, sponsors] = await Promise.all([getPublicData().getHome(liga), getSponsors()]);
+  const presenter = pickPresenter(sponsors);
 
   if (!data) {
     return (
@@ -73,6 +74,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
             game={hero}
             leagueName={data.league.name}
             seasonName={data.league.seasonName}
+            presenter={presenter}
           />
         </section>
       ) : (
@@ -164,10 +166,6 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
 
       <Suspense fallback={null}>
         <HomeNews />
-      </Suspense>
-
-      <Suspense fallback={null}>
-        <HomeSponsors />
       </Suspense>
 
       {data.topPlayers.length > 0 && (
@@ -265,10 +263,4 @@ async function HomeNews() {
       </div>
     </section>
   );
-}
-
-/** Franja de patrocinadores del home — fluye por separado vía <Suspense>. */
-async function HomeSponsors() {
-  const homeSponsors = await getSponsors("home");
-  return <SponsorStrip sponsors={homeSponsors} />;
 }

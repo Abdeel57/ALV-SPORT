@@ -30,7 +30,8 @@ import {
 } from "./schemas";
 import { parseRosterList } from "./roster-list";
 import { assign, ident, insertRow, insertRows, sql, type SqlValue } from "@/lib/db";
-import { MediaError, saveImage, type MediaBucket } from "@/lib/media/store";
+import { MediaError, readImage, saveImage, saveImageBytes, type MediaBucket } from "@/lib/media/store";
+import { canRemoveBackground, removeWhiteBackground } from "@/lib/media/transparent";
 import { assignSlots, generateRoundRobin, sportConfigSchema } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
 import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
@@ -114,10 +115,15 @@ async function uploadImage(
   formData: FormData,
   field: string,
   path: string,
+  options: { transparent?: boolean } = {},
 ): Promise<string | null> {
   const file = formData.get(field);
   if (!(file instanceof File) || file.size === 0) return null;
   try {
+    if (options.transparent && canRemoveBackground(file.type)) {
+      const png = await removeWhiteBackground(new Uint8Array(await file.arrayBuffer()));
+      return await saveImageBytes(bucket, context.organizationId, png, "png");
+    }
     return await saveImage(bucket, context.organizationId, file);
   } catch (error) {
     if (isControlFlow(error)) throw error;
@@ -1039,25 +1045,73 @@ export async function deleteNews(id: string): Promise<void> {
 
 const SPONSORS = "/admin/patrocinadores";
 
+/** Los patrocinadores salen en todas las páginas públicas (pie, barra, marquesina). */
+function sponsorsChanged(): never {
+  revalidatePath("/", "layout");
+  done(SPONSORS);
+}
+
 export async function saveSponsor(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(sponsorSchema, formData, SPONSORS);
-  const logoUrl = await uploadImage(context, "sponsor-logos", formData, "logo", SPONSORS);
+  const logoUrl = await uploadImage(context, "sponsor-logos", formData, "logo", SPONSORS, {
+    transparent: data.cleanBackground,
+  });
   const row: Record<string, SqlValue> = {
     organization_id: context.organizationId,
     name: data.name,
     link_url: data.linkUrl,
-    placement: data.placement,
+    tier: data.tier,
     sort_order: data.sortOrder,
-    is_active: true,
   };
+  if (!data.id) row.is_active = true;
   if (logoUrl) row.logo_url = logoUrl;
   await upsertRow(context, "sponsors", data.id, row, SPONSORS);
-  done(SPONSORS);
+  sponsorsChanged();
+}
+
+export async function setSponsorActive(id: string, active: boolean): Promise<void> {
+  const context = await ctx();
+  await run(SPONSORS, () =>
+    context.db.exec(sql`update public.sponsors set is_active = ${active} where id = ${id}`),
+  );
+  sponsorsChanged();
+}
+
+/** Recorta el fondo blanco de un logo ya subido y lo guarda como PNG transparente. */
+export async function cleanSponsorLogo(id: string): Promise<void> {
+  const context = await ctx();
+  const sponsor = await run(SPONSORS, () =>
+    context.db.maybeOne<{ logo_url: string | null }>(
+      sql`select logo_url from public.sponsors where id = ${id}`,
+    ),
+  );
+  if (!sponsor?.logo_url) fail(SPONSORS, "Ese patrocinador no tiene logo");
+  const image = await readImage(sponsor.logo_url);
+  if (!image) fail(SPONSORS, "No se encontró el archivo del logo");
+  if (!canRemoveBackground(image.contentType)) {
+    fail(SPONSORS, "Solo se puede limpiar un logo PNG, JPG o WebP");
+  }
+  let logoUrl: string;
+  try {
+    const png = await removeWhiteBackground(image.bytes);
+    logoUrl = await saveImageBytes("sponsor-logos", context.organizationId, png, "png");
+  } catch (error) {
+    if (error instanceof MediaError) fail(SPONSORS, error.message);
+    fail(SPONSORS, "No se pudo procesar el logo");
+  }
+  await run(SPONSORS, () =>
+    context.db.exec(sql`update public.sponsors set logo_url = ${logoUrl} where id = ${id}`),
+  );
+  sponsorsChanged();
 }
 
 export async function deleteSponsor(id: string): Promise<void> {
-  await deleteRow(await ctx(), "sponsors", id, SPONSORS);
+  const context = await ctx();
+  await run(SPONSORS, () =>
+    context.db.exec(sql`delete from public.sponsors where id = ${id}`),
+  );
+  sponsorsChanged();
 }
 
 /* --------------------------- IA (Fase 4) ------------------------------ */

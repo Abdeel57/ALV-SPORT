@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 
 /**
@@ -77,17 +77,56 @@ export async function saveImage(
   if (!file.type.startsWith("image/")) {
     throw new MediaError("El archivo debe ser una imagen");
   }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return saveImageBytes(bucket, organizationId, bytes, extensionFor(file));
+}
+
+/** Guarda bytes ya procesados (por ejemplo un PNG recién generado). */
+export async function saveImageBytes(
+  bucket: MediaBucket,
+  organizationId: string,
+  bytes: Uint8Array,
+  extension: string,
+): Promise<string> {
   if (!/^[0-9a-f-]{36}$/i.test(organizationId)) {
     throw new MediaError("Organización inválida");
   }
+  if (!(extension in EXTENSION_TYPES)) {
+    throw new MediaError("Formato de imagen no admitido");
+  }
+  if (bytes.byteLength > MAX_IMAGE_BYTES) {
+    throw new MediaError("La imagen no debe exceder 4 MB");
+  }
 
-  const extension = extensionFor(file);
   const name = `${randomUUID()}.${extension}`;
   const directory = join(mediaRoot(), bucket, organizationId);
   await mkdir(directory, { recursive: true });
-  await writeFile(join(directory, name), Buffer.from(await file.arrayBuffer()));
+  await writeFile(join(directory, name), bytes);
 
   return `${MEDIA_URL_PREFIX}/${bucket}/${organizationId}/${name}`;
+}
+
+/**
+ * Lee un archivo a partir de su URL pública (`/media/<bucket>/…`).
+ * Devuelve null si la URL no es nuestra o el archivo no existe.
+ */
+export async function readImage(
+  publicUrl: string,
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!publicUrl.startsWith(`${MEDIA_URL_PREFIX}/`)) return null;
+  const segments = publicUrl.slice(MEDIA_URL_PREFIX.length + 1).split("/");
+  const target = resolveMediaPath(segments);
+  if (!target) return null;
+  try {
+    const bytes = await readFile(target);
+    const extension = target.split(".").pop() ?? "";
+    return {
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      contentType: contentTypeFor(extension),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { SponsorPresenter } from "@/components/public/sponsor-presenter";
 import { TeamBadge } from "@/components/public/team-badge";
+import type { PublicSponsor } from "@/lib/data/extras";
 import type { GameSummary } from "@/lib/data/types";
 
 const dateFormat = new Intl.DateTimeFormat("es-MX", {
@@ -20,10 +22,13 @@ export function HeroGame({
   game,
   leagueName,
   seasonName,
+  presenter = null,
 }: {
   game: GameSummary;
   leagueName: string;
   seasonName: string;
+  /** Patrocinador principal para el lugar "Presenta". */
+  presenter?: PublicSponsor | null;
 }) {
   const isLive = game.status === "in_progress";
   const isFinal = game.status === "finalized";
@@ -127,6 +132,8 @@ export function HeroGame({
             </span>
           </span>
         </div>
+
+        {presenter && <SponsorPresenter sponsor={presenter} />}
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="tabular-nums">

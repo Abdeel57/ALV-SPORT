@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { SponsorPresenter } from "@/components/public/sponsor-presenter";
 import { TeamBadge } from "@/components/public/team-badge";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { PublicSponsor } from "@/lib/data/extras";
 import type { GameDetail, LineupEntry } from "@/lib/data/types";
 import type { EngineGameEvent } from "@/lib/engine";
 import { computeScore, effectiveEvents } from "@/lib/engine";
@@ -101,9 +103,12 @@ function TeamBlock({
 export function GameView({
   detail,
   realtime,
+  presenter = null,
 }: {
   detail: GameDetail;
   realtime: boolean;
+  /** Patrocinador principal para el lugar "Presenta" del marcador. */
+  presenter?: PublicSponsor | null;
 }) {
   const { game, sportConfig, lineups, playerNames, league } = detail;
   const [events, setEvents] = useState<EngineGameEvent[]>(detail.events);
@@ -313,6 +318,7 @@ export function GameView({
               align="right"
             />
           </div>
+          {presenter && <SponsorPresenter sponsor={presenter} />}
           <p className="text-center text-xs text-muted-foreground tabular-nums">
             {dateFormat.format(new Date(game.scheduledAt))}
           </p>

@@ -499,3 +499,37 @@ input[type="reset"] {
     box-shadow: none !important;
   }
 }
+
+/* ==========================================================================
+   Patrocinadores: barra deslizante inferior y halo suave para logos sin
+   fondo sobre superficies oscuras.
+   ========================================================================== */
+
+/* Entrada de la barra desde abajo. Con reduced-motion aparece sin animar. */
+@utility sponsor-bar-in {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: alv-slide-up 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+}
+
+/* Salida hacia abajo; termina fuera de cuadro y así se queda. */
+@utility sponsor-bar-out {
+  transform: translateY(100%);
+  @media (prefers-reduced-motion: no-preference) {
+    animation: alv-slide-down 260ms ease-in both;
+  }
+}
+
+/* Logos transparentes: un halo tenue para que los oscuros no se pierdan. */
+@utility logo-glow {
+  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.18));
+}
+
+@keyframes alv-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes alv-slide-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}

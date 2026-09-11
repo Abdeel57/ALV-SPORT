@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { getDb } from "@/lib/db/request";
 import { hasDatabaseEnv } from "@/lib/db/pool";
 import { sql } from "@/lib/db/sql";
@@ -8,11 +9,15 @@ import { sql } from "@/lib/db/sql";
  * secciones simplemente no se renderizan.
  */
 
+/** Nivel de patrocinio; la exposición es acumulativa (ver migración sponsor_tiers). */
+export type SponsorTier = "main" | "official" | "ally";
+
 export interface PublicSponsor {
   id: string;
   name: string;
   logoUrl: string | null;
   linkUrl: string | null;
+  tier: SponsorTier;
 }
 
 export interface PublicNews {
@@ -23,9 +28,11 @@ export interface PublicNews {
   publishedAt: string | null;
 }
 
-export async function getSponsors(
-  placement: "home" | "game" | "footer",
-): Promise<PublicSponsor[]> {
+/**
+ * Patrocinadores activos ordenados por nivel y orden manual. Se memoriza por
+ * petición (React cache): layout y página lo piden y solo hay una consulta.
+ */
+export const getSponsors = cache(async (): Promise<PublicSponsor[]> => {
   if (!hasDatabaseEnv()) return [];
   const db = await getDb();
   const rows = await db.rows<{
@@ -33,18 +40,35 @@ export async function getSponsors(
     name: string;
     logo_url: string | null;
     link_url: string | null;
+    tier: SponsorTier;
   }>(sql`
-    select id, name, logo_url, link_url
+    select id, name, logo_url, link_url, tier::text as tier
       from public.sponsors
-     where placement = ${placement} and is_active
-     order by sort_order
+     where is_active
+     order by tier, sort_order, created_at
   `);
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     logoUrl: row.logo_url,
     linkUrl: row.link_url,
+    tier: row.tier,
   }));
+});
+
+/**
+ * Patrocinador principal para el lugar "Presenta" de la marquesina. Si hay
+ * varios principales se turnan el lugar cada cinco minutos.
+ */
+export function pickPresenter(sponsors: PublicSponsor[]): PublicSponsor | null {
+  const mains = sponsors.filter((sponsor) => sponsor.tier === "main");
+  if (mains.length === 0) return null;
+  return mains[Math.floor(Date.now() / 300_000) % mains.length] ?? null;
+}
+
+/** Principales y oficiales: los que rotan en la barra deslizante. */
+export function tickerSponsors(sponsors: PublicSponsor[]): PublicSponsor[] {
+  return sponsors.filter((sponsor) => sponsor.tier !== "ally");
 }
 
 export async function getPublishedNews(limit = 3): Promise<PublicNews[]> {

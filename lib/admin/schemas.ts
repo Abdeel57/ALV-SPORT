@@ -153,7 +153,8 @@ export const sponsorSchema = z.object({
   linkUrl: z
     .union([z.url({ error: "El link debe ser una URL válida" }), z.literal("")])
     .transform((value) => (value === "" ? null : value)),
-  placement: z.enum(["home", "game", "footer"], { error: "Posición inválida" }),
+  tier: z.enum(["main", "official", "ally"], { error: "Nivel inválido" }).default("ally"),
+  cleanBackground: z.coerce.boolean().default(false),
   sortOrder: z.coerce.number().int().min(0).default(0),
 });
 
