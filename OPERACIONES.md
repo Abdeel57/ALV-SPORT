@@ -230,6 +230,7 @@ do $ begin
 end $;
 
 grant usage on schema public to anon, authenticated;
+grant usage on schema auth to anon, authenticated;
 alter default privileges in schema public
   grant select, insert, update, delete on tables to anon, authenticated;
 ```

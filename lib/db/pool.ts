@@ -1,6 +1,7 @@
 import "server-only";
 import { Pool, type PoolClient } from "pg";
 import { applyTypeParsers } from "./types";
+import { getClientFactory } from "./testing";
 
 /**
  * Pool único de conexiones a Postgres para todo el proceso.
@@ -72,6 +73,10 @@ export function getPool(): Pool {
 }
 
 export async function acquire(): Promise<PoolClient> {
+  // Las pruebas de integración inyectan un Postgres en proceso; en
+  // producción esto nunca está registrado y se usa el pool real.
+  const factory = getClientFactory();
+  if (factory) return factory();
   return getPool().connect();
 }
 
