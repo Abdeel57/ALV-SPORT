@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { InstallAppButton } from "@/components/admin/install-app";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -214,6 +215,7 @@ export function AdminSidebar() {
           <ExternalLink className="size-3.5 shrink-0" aria-hidden />
           Ver sitio público
         </Link>
+        <SignOutButton />
       </div>
     </aside>
   );

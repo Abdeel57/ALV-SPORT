@@ -40,7 +40,7 @@ export const metadata: Metadata = {
  * Vista previa de desarrollo: TODO lo que ves aquí se calcula con el motor
  * (lib/engine) desde los datos seed (lib/seed-data) — la misma fuente que
  * genera supabase/seed.sql y alimenta las pruebas. Sin base de datos.
- * El sitio público real (Fase 2) leerá de Supabase con Realtime.
+ * El sitio público real lee de Postgres, con marcador en vivo por SSE.
  */
 
 const teamById = new Map(teams.map((team) => [team.id, team]));
@@ -372,7 +372,7 @@ export default function DemoPage() {
           Esta página se calcula en el servidor con el motor de{" "}
           <code className="font-mono text-xs">lib/engine</code> directamente
           desde los datos seed — sin base de datos. Es la demostración de la
-          Fase 0; el sitio público real (Fase 2) leerá de Supabase en tiempo
+          Fase 0; el sitio público real lee de la base de datos en tiempo
           real.
         </p>
       </header>

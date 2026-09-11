@@ -19,7 +19,7 @@ import { computeScore, effectiveEvents } from "@/lib/engine";
 
 /**
  * Vista completa del partido. Se renderiza en el servidor (SEO) y, si el
- * partido está EN VIVO con Supabase configurado, se actualiza por Realtime
+ * partido está EN VIVO con base de datos configurada, se actualiza por SSE
  * sin recargar: cada INSERT en game_events recalcula marcador, línea por
  * periodo, timeline y estadísticas con el motor.
  */

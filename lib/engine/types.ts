@@ -1,6 +1,6 @@
 /**
  * Tipos del motor de partidos. Este módulo es PURO: sin I/O, sin React,
- * sin Supabase. Refleja las filas de la base de datos en camelCase.
+ * sin base de datos. Refleja las filas de la base en camelCase.
  */
 
 export type GameStatus =

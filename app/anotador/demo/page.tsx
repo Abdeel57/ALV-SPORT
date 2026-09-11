@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Demo de la mesa de anotación" };
 
 /*
  * Demo 100% local de la mesa de anotación con el partido seed que sigue
- * programado (juego 10: Mineros @ Halcones). Sin Supabase: los eventos se
+ * programado (juego 10: Mineros @ Halcones). Sin base de datos: los eventos se
  * quedan en la cola de IndexedDB ("Sin conexión") y la recuperación al
  * recargar funciona exactamente igual que en producción.
  */

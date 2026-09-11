@@ -570,7 +570,7 @@ export function AnotadorConsole(props: ConsoleProps) {
           <p className="max-w-md text-sm text-muted-foreground">
             Modo demo: los {queue.events.length} eventos anotados viven en
             IndexedDB de este navegador. En modo real se habrían sincronizado
-            a Supabase y los standings ya estarían refrescados.
+            al servidor y los standings ya estarían refrescados.
           </p>
         ) : (
           <p className="max-w-md text-sm text-muted-foreground">

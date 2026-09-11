@@ -9,12 +9,36 @@ Primer cliente real: liga de **softbol lento (slowpitch)**. El sistema debe sopo
 ## Stack (no negociable — no propongas alternativas)
 
 - **Next.js 15** (App Router) + **TypeScript estricto** (`strict: true`, prohibido `any`)
-- **Supabase**: Postgres, Auth, Realtime, Storage, RLS activado en TODAS las tablas
+- **Postgres** hablado DIRECTO desde la app, con RLS activado en TODAS las tablas
 - **Tailwind CSS + shadcn/ui** como base de componentes
 - **PWA** con Serwist: instalable, manifest completo, service worker, **Web Push notifications**
 - **Zod** para validación en todos los boundaries (formularios, API, webhooks)
-- Deploy: Vercel (frontend) + Supabase cloud
+- Deploy: Railway, **exactamente dos servicios** (`app` + Postgres)
 - Pagos: **Mercado Pago** (checkout + webhooks)
+
+### Sin Supabase (decisión de 2026-09-10)
+
+El proyecto nació sobre Supabase autoalojado: nueve servicios en Railway.
+Se migró a dos. **No reintroduzcas ninguna pieza de Supabase** (`@supabase/*`,
+PostgREST, GoTrue, Realtime, Storage, Kong, Studio). Lo que ocupa su lugar:
+
+| Necesidad | Cómo se hace ahora |
+|---|---|
+| Leer/escribir datos | `lib/db`: plantilla `` sql`` `` parametrizada + `getDb()` |
+| Aislamiento por usuario | Cada consulta abre transacción con `request.jwt.claims` + `SET LOCAL ROLE`. **Las políticas RLS no cambiaron y siguen siendo la barrera real.** |
+| Sesión | `lib/auth`: cookie firmada HMAC-SHA256 (Web Crypto, sirve en Edge); contraseñas bcrypt en `auth.users` verificadas con `pgcrypto` |
+| Tiempo real | `LISTEN/NOTIFY` + SSE: `lib/live/broker.ts` y `/api/live/[gameId]` |
+| Imágenes | `lib/media`: volumen montado en la app, servido por `/media/[...path]` |
+| Privilegios de servidor | `serviceDb()` — solo tareas sin usuario (webhooks, push) |
+
+Reglas que se derivan de esto:
+
+- **El navegador nunca habla con la base.** Toda mutación pasa por una Server
+  Action o una ruta de API. No existe una API pública de datos.
+- **Nunca concatenes SQL.** Siempre `` sql`…` ``; los identificadores dinámicos
+  van por `ident()`, que valida y entrecomilla.
+- Las migraciones siguen viviendo en `supabase/migrations/` — el nombre de la
+  carpeta se conserva para no romper el historial, pero ya no hay Supabase.
 
 ## Arquitectura de datos — LA REGLA MÁS IMPORTANTE
 
@@ -22,7 +46,7 @@ El núcleo multi-deporte funciona así y no de otra forma:
 
 1. **`game_events` es la fuente única de verdad.** Tabla append-only: cada acción del partido (carrera, canasta de 3, gol, ace, falta, cambio) es una fila con `game_id`, `team_id`, `player_id`, `event_type`, `payload jsonb`, `period`, `clock`, `created_by`, `created_at`. Nunca se edita un marcador a mano: se insertan eventos, y correcciones = evento de tipo `correction` que referencia al original.
 2. **Cada deporte es configuración, no código.** Tabla `sports` con `config jsonb` que define: tipos de evento válidos, cómo cada evento afecta el marcador, estructura de periodos (innings, cuartos, sets), reglas de desempate en standings, y qué estadísticas se acumulan por jugador. Agregar un deporte nuevo = insertar una fila de configuración + registrar sus event types. Cero cambios al motor.
-3. **Estadísticas y standings son SIEMPRE derivadas** de `game_events`, vía vistas materializadas o funciones de Postgres que se refrescan al finalizar el partido (y en vivo vía Realtime para el marcador). Prohibido guardar totales editables a mano como fuente primaria.
+3. **Estadísticas y standings son SIEMPRE derivadas** de `game_events`, vía vistas materializadas o funciones de Postgres que se refrescan al finalizar el partido (y en vivo por SSE para el marcador). Prohibido guardar totales editables a mano como fuente primaria.
 4. **Jerarquía multi-tenant:** `organizations → leagues → sports → seasons → divisions/categories → teams → rosters → games`. Todo query filtra por tenant vía RLS.
 
 ## Roles y permisos
@@ -68,4 +92,5 @@ La plataforma se llama **ALV SPORT** ("All Leagues"). El logo es texto blanco me
 - No inventes features fuera de la fase actual.
 - No generes datos mock hardcodeados en componentes: usa seeds SQL.
 - No uses localStorage para estado crítico.
+- No vuelvas a poner un cliente de base de datos en el navegador.
 - No optimices prematuramente; sí paginación y índices desde el día 1 en tablas que crecen (`game_events`, `audit_log`).

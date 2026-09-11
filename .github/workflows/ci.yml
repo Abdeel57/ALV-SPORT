@@ -43,8 +43,8 @@ jobs:
       - name: Pruebas del motor (Vitest)
         run: pnpm test
 
-      # El build no requiere Supabase: la capa de datos cae al proveedor seed
-      # cuando no hay proyecto (hasSupabaseEnv()). Verifica que compile y que
+      # El build no requiere base de datos: la capa de datos cae al proveedor
+      # seed cuando no hay DATABASE_URL. Verifica que compile y que
       # se genere el service worker.
       - name: Build de producción
         run: pnpm build

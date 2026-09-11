@@ -41,7 +41,7 @@ async function HomeContent({ liga }: { liga: string | undefined }) {
       <main className="mx-auto w-full max-w-5xl px-4 py-10">
         <EmptyState>
           Aún no hay ligas publicadas. Vuelve pronto — o si eres organizador,
-          conecta tu proyecto de Supabase (ver README).
+          conecta tu base de datos (ver README).
         </EmptyState>
       </main>
     );

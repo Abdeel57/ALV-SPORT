@@ -13,10 +13,11 @@
     "test:watch": "vitest",
     "seed:generate": "tsx scripts/generate-seed.ts",
     "brand:assets": "tsx scripts/generate-brand-assets.ts",
-    "db:push": "supabase db push",
     "db:migrate": "tsx scripts/apply-migrations.ts",
     "db:backup": "tsx scripts/backup-db.ts",
-    "security:audit": "tsx scripts/security-audit.ts"
+    "security:audit": "tsx scripts/security-audit.ts",
+    "users": "tsx scripts/users.ts",
+    "media:migrate": "tsx scripts/migrate-media.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

@@ -1,6 +1,7 @@
 # ALV SPORT — imagen para Railway (Next.js standalone + pnpm)
 # Los NEXT_PUBLIC_* se inyectan en BUILD: configura las variables del
-# servicio en Railway ANTES del primer deploy.
+# servicio en Railway ANTES del primer deploy. Todo lo demás
+# (DATABASE_URL, AUTH_SECRET, MEDIA_ROOT…) se lee en tiempo de ejecución.
 
 FROM node:22-alpine AS base
 RUN corepack enable
@@ -16,8 +17,6 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
 ARG NEXT_PUBLIC_SITE_URL
 RUN pnpm build

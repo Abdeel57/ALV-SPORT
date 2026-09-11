@@ -1,17 +1,20 @@
 /**
- * Auditoría de seguridad contra el stack REAL (Fase 5): intenta accesos
- * indebidos por cada rol; TODOS deben fallar por RLS o middleware.
+ * Auditoría de seguridad contra el stack REAL: intenta accesos indebidos
+ * por cada rol; TODOS deben fallar por RLS o por el middleware.
  *
- *   SUPABASE_URL=... ANON_KEY=... SERVICE_ROLE_KEY=... APP_URL=... \
- *     pnpm tsx scripts/security-audit.ts
+ *   DATABASE_URL=... APP_URL=... pnpm tsx scripts/security-audit.ts
  *
- * Crea usuarios temporales (…@audit.alvsport.test), ejecuta los intentos y
- * limpia todo al final. Sale con código 1 si algún intento indebido pasa.
+ * Habla DIRECTO con Postgres, aplicando la identidad igual que la app
+ * (request.jwt.claims + SET LOCAL ROLE). Eso prueba las políticas mismas,
+ * sin capas intermedias que puedan enmascarar un fallo.
+ *
+ * Cada intento corre dentro de una transacción que SIEMPRE se revierte: aun
+ * si un acceso indebido lograra escribir, no queda nada en la base. Los
+ * usuarios de prueba (…@audit.alvsport.test) se eliminan al final.
  */
+import { randomUUID } from "node:crypto";
+import { Client } from "pg";
 
-const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
-const ANON_KEY = process.env.ANON_KEY ?? "";
-const SERVICE_KEY = process.env.SERVICE_ROLE_KEY ?? "";
 const APP_URL = process.env.APP_URL ?? "";
 
 const ORG_ID = "01000000-0000-4000-8000-000000000001";
@@ -29,211 +32,227 @@ const results: Check[] = [];
 
 function record(name: string, ok: boolean, detail: string): void {
   results.push({ name, ok, detail });
-  console.log(`${ok ? "✅ BLOQUEADO" : "❌ PERMITIDO (FALLA)"} — ${name}${detail ? ` · ${detail}` : ""}`);
+  console.log(
+    `${ok ? "✅ BLOQUEADO" : "❌ PERMITIDO (FALLA)"} — ${name}${detail ? ` · ${detail}` : ""}`,
+  );
 }
 
-async function rest(
-  path: string,
-  init: RequestInit,
-  token: string,
-): Promise<Response> {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...init,
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-      ...(init.headers ?? {}),
-    },
-  });
-}
+let client: Client;
 
-async function adminApi(path: string, init: RequestInit): Promise<Response> {
-  return fetch(`${SUPABASE_URL}/auth/v1/admin/${path}`, {
-    ...init,
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-}
-
-async function createUser(email: string): Promise<{ id: string; password: string }> {
-  const password = `Audit-${Math.random().toString(36).slice(2, 12)}!`;
-  const response = await adminApi("users", {
-    method: "POST",
-    body: JSON.stringify({ email, password, email_confirm: true }),
-  });
-  const data = (await response.json()) as { id?: string; msg?: string };
-  if (!response.ok || !data.id) {
-    throw new Error(`No se pudo crear ${email}: ${JSON.stringify(data)}`);
+/**
+ * Corre una sonda con la identidad dada y REVIERTE siempre. Devuelve el
+ * número de filas afectadas, o un error si la política lo impidió.
+ */
+async function probe(
+  actor: { kind: "anon" } | { kind: "user"; userId: string },
+  statement: string,
+  params: unknown[] = [],
+): Promise<{ ok: boolean; rows: number; error: string | null }> {
+  await client.query("begin");
+  try {
+    if (actor.kind === "anon") {
+      await client.query(
+        `select set_config('request.jwt.claims', '{"role":"anon"}', true)`,
+      );
+      await client.query("set local role anon");
+    } else {
+      await client.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: actor.userId, role: "authenticated" }),
+      ]);
+      await client.query("set local role authenticated");
+    }
+    const result = await client.query(statement, params);
+    return { ok: true, rows: result.rowCount ?? 0, error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      rows: 0,
+      error: error instanceof Error ? error.message.split("\n")[0] ?? "" : String(error),
+    };
+  } finally {
+    // Siempre se revierte: la auditoría no deja rastro.
+    await client.query("rollback");
   }
-  return { id: data.id, password };
 }
 
-async function login(email: string, password: string): Promise<string> {
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  const data = (await response.json()) as { access_token?: string };
-  if (!data.access_token) throw new Error(`Login falló para ${email}`);
-  return data.access_token;
+async function cryptoSchema(): Promise<string> {
+  const { rows } = await client.query<{ schema: string }>(
+    `select n.nspname as schema from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+      where p.proname = 'crypt' limit 1`,
+  );
+  const schema = rows[0]?.schema;
+  if (!schema) throw new Error("pgcrypto no está instalado.");
+  return schema;
 }
 
-async function serviceSql(path: string, body: unknown): Promise<void> {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(`setup ${path}: ${response.status} ${await response.text()}`);
-  }
+async function createUser(email: string, schema: string): Promise<string> {
+  const id = randomUUID();
+  const { rows } = await client.query<{ column_name: string }>(
+    `select column_name from information_schema.columns
+      where table_schema = 'auth' and table_name = 'users'`,
+  );
+  const columns = new Set(rows.map((row) => row.column_name));
+  const all: [string, string][] = [
+    ["id", "$1"],
+    ["email", "$2"],
+    [
+      "encrypted_password",
+      `"${schema}".crypt('Audit-${id.slice(0, 8)}!', "${schema}".gen_salt('bf', 10))`,
+    ],
+    ["instance_id", "'00000000-0000-0000-0000-000000000000'::uuid"],
+    ["aud", "'authenticated'"],
+    ["role", "'authenticated'"],
+    ["email_confirmed_at", "now()"],
+    ["created_at", "now()"],
+    ["updated_at", "now()"],
+    ["raw_app_meta_data", `'{"provider":"email","providers":["email"]}'::jsonb`],
+    ["raw_user_meta_data", "'{}'::jsonb"],
+  ];
+  const candidates = all.filter(([column]) => columns.has(column));
+
+  await client.query(
+    `insert into auth.users (${candidates.map(([c]) => `"${c}"`).join(", ")})
+     values (${candidates.map(([, v]) => v).join(", ")})`,
+    [id, email],
+  );
+  return id;
 }
 
 async function main(): Promise<void> {
-  for (const key of ["SUPABASE_URL", "ANON_KEY", "SERVICE_ROLE_KEY", "APP_URL"]) {
-    if (!process.env[key]) throw new Error(`Falta ${key}`);
-  }
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("Falta DATABASE_URL");
+  if (!APP_URL) throw new Error("Falta APP_URL");
+
   const stamp = Date.now().toString(36);
   console.log("== Auditoría de seguridad ALV SPORT ==\n");
 
-  // ---------- 1. Anónimo inserta en game_events ----------
-  {
-    const response = await rest(
-      "game_events",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          game_id: GAME_SCHEDULED,
-          event_type: "run",
-          period: 1,
-          created_by: "00000000-0000-4000-8000-000000000000",
-        }),
-      },
-      ANON_KEY,
-    );
-    record(
-      "Anónimo inserta en game_events",
-      !response.ok,
-      `HTTP ${response.status}`,
-    );
-  }
+  client = new Client({ connectionString: databaseUrl, ssl: false });
+  await client.connect();
 
-  // ---------- setup: usuarios temporales ----------
-  const scorekeeper = await createUser(`scorekeeper-${stamp}@audit.alvsport.test`);
-  const captain = await createUser(`captain-${stamp}@audit.alvsport.test`);
-  await serviceSql("organization_members", {
-    organization_id: ORG_ID,
-    user_id: scorekeeper.id,
-    role: "scorekeeper",
-  });
-  await serviceSql("organization_members", {
-    organization_id: ORG_ID,
-    user_id: captain.id,
-    role: "team_captain",
-  });
-  await serviceSql("game_assignments", {
-    game_id: GAME_SCHEDULED,
-    user_id: scorekeeper.id,
-    role: "scorekeeper",
-  });
-  // Una inscripción ajena (pedida por otro usuario) que el capitán NO debe ver.
-  await serviceSql("registrations", {
-    season_id: SEASON_SOFTBALL,
-    team_id: TEAM_COYOTES,
-    amount: 1500,
-    requested_by: scorekeeper.id,
-  });
+  const schema = await cryptoSchema();
+  const scorekeeperEmail = `scorekeeper-${stamp}@audit.alvsport.test`;
+  const captainEmail = `captain-${stamp}@audit.alvsport.test`;
+  let scorekeeperId = "";
+  let captainId = "";
 
-  const skToken = await login(`scorekeeper-${stamp}@audit.alvsport.test`, scorekeeper.password);
-  const capToken = await login(`captain-${stamp}@audit.alvsport.test`, captain.password);
-
-  // ---------- 2. Scorekeeper intenta editar equipos ----------
-  {
-    const response = await rest(
-      `teams?id=eq.${TEAM_COYOTES}`,
-      { method: "PATCH", body: JSON.stringify({ name: "HACKEADO FC" }) },
-      skToken,
-    );
-    const rows = response.ok ? ((await response.json()) as unknown[]) : [];
-    record(
-      "Scorekeeper edita el nombre de un equipo",
-      !response.ok || rows.length === 0,
-      `HTTP ${response.status}, filas afectadas: ${rows.length}`,
-    );
-  }
-
-  // ---------- 3. Scorekeeper inserta evento en juego NO asignado/cerrado ----------
-  {
-    const response = await rest(
-      "game_events",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          game_id: GAME_FINALIZED,
-          team_id: TEAM_COYOTES,
-          event_type: "run",
-          period: 1,
-          created_by: scorekeeper.id,
-        }),
-      },
-      skToken,
-    );
-    record(
-      "Scorekeeper inserta evento en partido no asignado (y finalizado)",
-      !response.ok,
-      `HTTP ${response.status}`,
-    );
-  }
-
-  // ---------- 4. Captain lee inscripciones/pagos de otros ----------
-  {
-    const response = await rest("registrations?select=id,amount,status", { method: "GET" }, capToken);
-    const rows = response.ok ? ((await response.json()) as unknown[]) : [];
-    record(
-      "Team captain lee pagos/inscripciones ajenas",
-      rows.length === 0,
-      `HTTP ${response.status}, filas visibles: ${rows.length}`,
-    );
-  }
-
-  // ---------- 5. Endpoint de IA/webhooks sin autenticación ----------
-  for (const hook of ["game-status", "game-events"]) {
-    const response = await fetch(`${APP_URL}/api/hooks/${hook}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "UPDATE", record: { id: GAME_FINALIZED } }),
-    });
-    record(
-      `Webhook /api/hooks/${hook} sin secreto (dispararía push/IA)`,
-      response.status === 401,
-      `HTTP ${response.status}`,
-    );
-  }
-
-  // ---------- limpieza ----------
-  await fetch(
-    `${SUPABASE_URL}/rest/v1/registrations?season_id=eq.${SEASON_SOFTBALL}&team_id=eq.${TEAM_COYOTES}`,
+  try {
+    // ---------- 1. Anónimo inserta en game_events ----------
     {
-      method: "DELETE",
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-    },
-  );
-  for (const user of [scorekeeper, captain]) {
-    await adminApi(`users/${user.id}`, { method: "DELETE" });
+      const attempt = await probe(
+        { kind: "anon" },
+        `insert into public.game_events (game_id, event_type, period, created_by)
+         values ($1, 'run', 1, '00000000-0000-4000-8000-000000000000')`,
+        [GAME_SCHEDULED],
+      );
+      record("Anónimo inserta en game_events", !attempt.ok, attempt.error ?? "insertó");
+    }
+
+    // ---------- setup: usuarios temporales ----------
+    scorekeeperId = await createUser(scorekeeperEmail, schema);
+    captainId = await createUser(captainEmail, schema);
+    await client.query(
+      `insert into public.organization_members (organization_id, user_id, role)
+       values ($1, $2, 'scorekeeper'), ($1, $3, 'team_captain')`,
+      [ORG_ID, scorekeeperId, captainId],
+    );
+    await client.query(
+      `insert into public.game_assignments (game_id, user_id, role)
+       values ($1, $2, 'scorekeeper')`,
+      [GAME_SCHEDULED, scorekeeperId],
+    );
+    // Una inscripción ajena (pedida por otro usuario) que el capitán NO debe ver.
+    await client.query(
+      `insert into public.registrations (season_id, team_id, amount, requested_by)
+       values ($1, $2, 1500, $3)`,
+      [SEASON_SOFTBALL, TEAM_COYOTES, scorekeeperId],
+    );
+
+    // ---------- 2. Scorekeeper intenta editar equipos ----------
+    {
+      const attempt = await probe(
+        { kind: "user", userId: scorekeeperId },
+        "update public.teams set name = 'HACKEADO FC' where id = $1",
+        [TEAM_COYOTES],
+      );
+      record(
+        "Scorekeeper edita el nombre de un equipo",
+        !attempt.ok || attempt.rows === 0,
+        attempt.error ?? `filas afectadas: ${attempt.rows}`,
+      );
+    }
+
+    // ---------- 3. Scorekeeper inserta evento en juego NO asignado/cerrado ----------
+    {
+      const attempt = await probe(
+        { kind: "user", userId: scorekeeperId },
+        `insert into public.game_events (game_id, team_id, event_type, period, created_by)
+         values ($1, $2, 'run', 1, $3)`,
+        [GAME_FINALIZED, TEAM_COYOTES, scorekeeperId],
+      );
+      record(
+        "Scorekeeper inserta evento en partido no asignado (y finalizado)",
+        !attempt.ok,
+        attempt.error ?? "insertó",
+      );
+    }
+
+    // ---------- 4. Captain lee inscripciones/pagos de otros ----------
+    {
+      const attempt = await probe(
+        { kind: "user", userId: captainId },
+        "select id, amount, status from public.registrations",
+      );
+      record(
+        "Team captain lee pagos/inscripciones ajenas",
+        !attempt.ok || attempt.rows === 0,
+        attempt.error ?? `filas visibles: ${attempt.rows}`,
+      );
+    }
+
+    // ---------- 5. Webhooks internos sin secreto ----------
+    for (const hook of ["game-status", "game-events"]) {
+      let status = 0;
+      try {
+        const response = await fetch(`${APP_URL}/api/hooks/${hook}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "UPDATE", record: { id: GAME_FINALIZED } }),
+        });
+        status = response.status;
+      } catch (error) {
+        record(
+          `Webhook /api/hooks/${hook} sin secreto (dispararía push/IA)`,
+          false,
+          `no se pudo contactar: ${error instanceof Error ? error.message : "error"}`,
+        );
+        continue;
+      }
+      record(
+        `Webhook /api/hooks/${hook} sin secreto (dispararía push/IA)`,
+        status === 401,
+        `HTTP ${status}`,
+      );
+    }
+  } finally {
+    // ---------- limpieza ----------
+    try {
+      await client.query(
+        "delete from public.registrations where season_id = $1 and team_id = $2 and requested_by = $3",
+        [SEASON_SOFTBALL, TEAM_COYOTES, scorekeeperId],
+      );
+      await client.query("delete from auth.users where email = any($1::text[])", [
+        [scorekeeperEmail, captainEmail],
+      ]);
+      console.log("\n(limpieza: usuarios e inscripción de prueba eliminados)");
+    } catch (error) {
+      console.error(
+        `\n⚠️  La limpieza falló: ${error instanceof Error ? error.message : error}`,
+      );
+      console.error(`   Revisa a mano: ${scorekeeperEmail}, ${captainEmail}`);
+    }
+    await client.end();
   }
-  console.log("\n(limpieza: usuarios e inscripción de prueba eliminados)");
 
   const failed = results.filter((check) => !check.ok);
   console.log(

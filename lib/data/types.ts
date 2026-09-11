@@ -143,7 +143,7 @@ export interface SearchResults {
 }
 
 export interface PublicDataProvider {
-  /** true cuando los datos vienen de Supabase (habilita Realtime). */
+  /** true cuando los datos vienen de la base (habilita el marcador en vivo). */
   readonly isLive: boolean;
   getLeagues(): Promise<LeagueInfo[]>;
   getHome(leagueSlug?: string): Promise<HomeData | null>;

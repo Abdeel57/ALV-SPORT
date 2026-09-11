@@ -116,7 +116,7 @@ export default async function EquiposPage({ searchParams }: PageProps) {
               className="h-12 w-full cursor-pointer rounded-lg border bg-transparent px-1"
             />
           </Field>
-          <Field label="Escudo (imagen, opcional)" hint="Se sube a Supabase Storage (máx. 4 MB)">
+          <Field label="Escudo (imagen, opcional)" hint="Máx. 4 MB">
             <input type="file" name="logo" accept="image/*" className={`${inputClass} py-2.5`} />
           </Field>
           <div className="flex items-end">

@@ -16,7 +16,7 @@ export interface ConsoleTeam {
   roster: RosterPlayer[];
 }
 
-/** Fila cruda de game_events tal como viene de Supabase (snake_case). */
+/** Fila cruda de game_events tal como viene de la base (snake_case). */
 export interface ServerEventRow {
   id: string;
   seq: number;
@@ -39,7 +39,7 @@ export interface ConsoleGame {
 }
 
 export interface ConsoleProps {
-  /** "live" usa Supabase (sync + Realtime); "demo" es 100% local. */
+  /** "live" sincroniza con el servidor (cola + SSE); "demo" es 100% local. */
   mode: "live" | "demo";
   userId: string;
   game: ConsoleGame;

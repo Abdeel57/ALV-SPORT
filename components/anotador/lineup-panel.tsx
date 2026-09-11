@@ -132,7 +132,7 @@ export function LineupPanel({
         <h1 className="font-display text-3xl">Alineaciones</h1>
         {demoMode && (
           <Badge variant="outline" className="border-brand-amber/50 text-brand-amber">
-            Modo demo · sin conexión a Supabase
+            Modo demo · sin conexión a la base
           </Badge>
         )}
       </header>

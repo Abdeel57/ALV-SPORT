@@ -2,7 +2,9 @@
 
 PWA multi-tenant para administrar ligas deportivas amateur y semi-profesionales en México: inscripciones, calendario, anotación en vivo, estadísticas, tablas, perfiles, notificaciones push y crónicas automáticas. Primer cliente: liga de softbol lento. El núcleo soporta cualquier deporte **por configuración** — basquetbol y voleibol ya funcionan end-to-end sin una línea de código específica.
 
-**Stack:** Next.js 15 (App Router) · TypeScript estricto · Supabase (Postgres + Auth + Realtime + Storage + RLS) · Tailwind v4 + shadcn/ui · Serwist (PWA + Web Push) · Zod · Vitest · Mercado Pago.
+**Stack:** Next.js 15 (App Router) · TypeScript estricto · Postgres (SQL directo, RLS, LISTEN/NOTIFY) · Tailwind v4 + shadcn/ui · Serwist (PWA + Web Push) · Zod · Vitest · Mercado Pago.
+
+> **Dos servicios, no nueve.** La app habla directo con Postgres: no hay PostgREST, GoTrue, Realtime, Storage, Kong ni Studio. La sesión es una cookie firmada por la app, el marcador en vivo va por SSE sobre `LISTEN/NOTIFY`, y las imágenes viven en un volumen del propio servicio. Las políticas RLS siguen siendo las mismas y son la barrera real.
 
 ## Arquitectura en 4 reglas
 
@@ -64,49 +66,59 @@ Derivados (no son tablas editables): `game_team_scores` (vista: puntos **y** per
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:3000 (sin Supabase usa el proveedor seed: motor + datos demo, cero red)
-pnpm test         # 74 pruebas del motor (softbol, basquetbol y voleibol; no requieren base)
+pnpm dev          # http://localhost:3000 (sin DATABASE_URL usa el proveedor seed: motor + datos demo, cero red)
+pnpm test         # 117 pruebas (motor, constructor de SQL y sesión; no requieren base)
 pnpm typecheck && pnpm lint
 pnpm build        # build de producción + service worker (public/sw.js)
 ```
 
-Con `.env.local` configurado (ver tabla), el sitio consume la base real con Realtime; sin él, la capa de datos ([lib/data/](lib/data/)) cae al proveedor seed con la misma UI.
+Con `.env.local` configurado (ver tabla), el sitio consume la base real con marcador en vivo; sin él, la capa de datos ([lib/data/](lib/data/)) cae al proveedor seed con la misma UI.
 
 ## Variables de entorno
 
 | Variable | Lado | Para qué |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | build + server | URL del API (Kong en Railway o proyecto Supabase cloud) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | build + server | Llave anónima (RLS decide qué ve) |
-| `SUPABASE_SERVICE_ROLE_KEY` | server | Webhooks MP/push/IA (salta RLS; jamás al cliente) |
+| `DATABASE_URL` | server | Conexión a Postgres. **Lo único obligatorio para leer datos.** |
+| `AUTH_SECRET` | server | Firma la cookie de sesión (mín. 32 car.). Cambiarlo cierra todas las sesiones. |
+| `MEDIA_ROOT` | server | Carpeta de logos y fotos. En Railway, la ruta de montaje del volumen. |
 | `NEXT_PUBLIC_SITE_URL` | build + server | URL pública (back_urls de MP, links absolutos) |
 | `MP_ACCESS_TOKEN` | server | Checkout + consulta de pagos de Mercado Pago |
 | `MP_WEBHOOK_SECRET` | server | Valida `x-signature` del webhook de MP |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | build | Suscripción Web Push del navegador |
 | `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | server | Firma de envíos push |
-| `SUPABASE_WEBHOOK_SECRET` | server | Header `x-alv-webhook-secret` de los triggers pg_net |
+| `WEBHOOK_SECRET` | server | Header `x-alv-webhook-secret` de los triggers pg_net |
+| `DATABASE_SSL`, `DATABASE_POOL_MAX` | server | Opcionales: TLS y tamaño del pool |
 
-Los `NEXT_PUBLIC_*` se **hornean en build** (en Railway van como build args del Dockerfile).
+Los `NEXT_PUBLIC_*` se **hornean en build** (en Railway van como build args del Dockerfile); el resto se lee en tiempo de ejecución.
 
-## Despliegue: TODO en Railway (Supabase autoalojado)
+## Despliegue: dos servicios en Railway
 
-La infraestructura completa vive en Railway: el stack open-source de Supabase (Postgres + Auth + PostgREST + Realtime + Storage + Kong + Studio) y la app Next.js ([Dockerfile](Dockerfile) + [railway.json](railway.json)).
+Solo hacen falta **la app** ([Dockerfile](Dockerfile) + [railway.json](railway.json)) y **Postgres**.
 
-1. **Supabase** — New → Deploy Template → "Supabase". Anota la URL pública de Kong (`NEXT_PUBLIC_SUPABASE_URL`), `ANON_KEY`, `SERVICE_ROLE_KEY` y la connection string de Postgres (TCP proxy).
-2. **Migraciones + seed** — el runner del repo aplica en orden y lleva registro en `_alv_migrations` (el TCP proxy de Railway no habla TLS, por eso no se usa `supabase db push`):
+1. **Postgres** — New → Database → PostgreSQL. Anota la connection string (la de red privada para la app; la del proxy TCP para correr scripts desde tu equipo).
+2. **Migraciones + seed** — el runner del repo aplica en orden y lleva registro en `_alv_migrations`:
    ```bash
-   DATABASE_URL="postgresql://supabase_admin:PASSWORD@HOST:PUERTO/postgres" pnpm tsx scripts/apply-migrations.ts --seed
+   DATABASE_URL="postgresql://..." pnpm db:migrate -- --seed
    # --seed solo siembra si la base está vacía
    ```
-3. **La app** — New → Service → este repo (usa el Dockerfile). Configura TODAS las variables **antes del primer build** y dale **Generate Domain** (HTTPS es requisito de Web Push).
-4. **Webhooks** — son triggers pg_net versionados ([migración 16](supabase/migrations/)); apúntalos una vez:
+   > Las migraciones usan `pgcrypto` y el esquema `auth`. Partiendo de una base
+   > limpia (no una que ya venía de Supabase), créalos antes — ver la sección
+   > *Base limpia* en [OPERACIONES.md](OPERACIONES.md).
+3. **La app** — New → Service → este repo (usa el Dockerfile). Configura las variables **antes del primer build**, monta un **volumen** en la ruta de `MEDIA_ROOT` (p. ej. `/var/lib/alv-media`) y dale **Generate Domain** (HTTPS es requisito de Web Push).
+4. **Webhooks internos** — triggers pg_net versionados ([migración 16](supabase/migrations/)); apúntalos una vez:
    ```sql
    update public.app_config set value = 'https://TU-APP.up.railway.app' where key = 'webhook_base_url';
-   update public.app_config set value = 'TU-SUPABASE_WEBHOOK_SECRET'   where key = 'webhook_secret';
+   update public.app_config set value = 'EL-MISMO-WEBHOOK_SECRET'       where key = 'webhook_secret';
    ```
-5. **Usuarios** — Studio → Authentication → Users; asigna rol: `insert into organization_members (organization_id, user_id, role) values ('<org>','<user>','org_admin');`
+5. **Usuarios** — desde la línea de comandos (ya no hay Studio):
+   ```bash
+   DATABASE_URL="postgresql://..." pnpm users create admin@liga.mx 'ContrasenaLarga'
+   DATABASE_URL="postgresql://..." pnpm users list
+   DATABASE_URL="postgresql://..." pnpm users password admin@liga.mx 'NuevaContrasena'
+   ```
+   Luego entra a `/activar` con esa sesión para volverla administradora de la liga.
 
-> Supabase Cloud funciona como alternativa sin cambiar código: apunta las env vars al proyecto cloud y usa `supabase db push`.
+> Para consultar la base a mano usa DBeaver, TablePlus o `psql` contra el proxy TCP.
 
 ## Operaciones y calidad
 
@@ -114,8 +126,9 @@ Cada push/PR a `main` corre la compuerta completa en CI ([.github/workflows/ci.y
 
 ## Endurecimiento (Fase 5)
 
-- **Auditoría de accesos por rol** — [scripts/security-audit.ts](scripts/security-audit.ts) crea usuarios temporales reales y ataca la API de producción: anónimo insertando en `game_events`, scorekeeper editando equipos y anotando en partidos ajenos/cerrados, team_captain leyendo pagos de otros, webhooks de push/IA sin secreto. Resultado actual: **6/6 bloqueados**. (La corrida inicial encontró una fuga real — cualquier miembro de la org podía leer inscripciones con montos — corregida en la migración `..._fix_registrations_rls.sql`.)
-- **Rate limiting** — [middleware.ts](middleware.ts): por IP, `/buscar` 20 req/min y `/api/*` 60 req/min; 429 con `Retry-After` y mensaje es-MX.
+- **Auditoría de accesos por rol** — [scripts/security-audit.ts](scripts/security-audit.ts) crea usuarios temporales reales y ataca la base con la identidad de cada rol (la misma mecánica que usa la app): anónimo insertando en `game_events`, scorekeeper editando equipos y anotando en partidos ajenos/cerrados, team_captain leyendo pagos de otros, webhooks de push/IA sin secreto. Resultado actual: **6/6 bloqueados**. (La corrida inicial encontró una fuga real — cualquier miembro de la org podía leer inscripciones con montos — corregida en la migración `..._fix_registrations_rls.sql`.)
+- **Rate limiting** — [middleware.ts](middleware.ts): por IP, `/buscar` 20 req/min, `/api/*` 60 req/min y `/login` 10 intentos/min; 429 con `Retry-After` y mensaje es-MX.
+- **Sin API pública de datos** — al no existir PostgREST no hay endpoint que exponga tablas al internet: todo pasa por el servidor de la app.
 - **Índices verificados** — `EXPLAIN ANALYZE` en producción: timeline de partido usa `(game_id, seq)`, stats por jugador usa el índice parcial `player_id`, y la derivación completa de standings corre en <1 ms con los datos actuales.
 - **Pagos** — el webhook de MP valida `x-signature` (HMAC-SHA256) y es idempotente (`status ≠ paid` como guarda); el estado del pago SIEMPRE se consulta de vuelta a la API de MP.
 - **Paginación** — donde las tablas crecen sin límite: auditoría (50/página) y noticias (10/página); `game_events` y listados públicos ya paginaban.
@@ -147,22 +160,27 @@ app/                  # App Router (server components por defecto)
   (public)/           # Sitio público: /, /partido, /tabla, /equipo, /jugador, /buscar
   admin/              # Panel: dashboard, CRUDs, calendario, pagos, sanciones, noticias, auditoría
   anotador/           # Mesa de anotación (tablet, offline-first) + /anotador/demo
-  api/                # Webhooks (MP, pg_net) y push subscribe
+  api/                # Marcador en vivo (SSE), mesa, webhooks (MP, pg_net), push, /media
 components/           # UI (shadcn), anotador, admin
-lib/engine/           # Motor puro: marcador, standings, stats, calendario (74 pruebas)
+lib/engine/           # Motor puro: marcador, standings, stats, calendario
 lib/offline/          # Cola IndexedDB + sync engine idempotente
-lib/data/             # Proveedores público: supabase (Realtime) | seed (sin red)
+lib/db/               # Pool, plantilla sql`` y ejecutor con RLS por transacción
+lib/auth/             # Sesión propia: cookie firmada + contraseñas con pgcrypto
+lib/live/             # Repartidor LISTEN/NOTIFY del marcador en vivo
+lib/media/            # Almacén de imágenes en volumen
+lib/data/             # Proveedores del sitio público: postgres | seed (sin red)
 lib/admin|push|ai/    # Server actions, Web Push, crónicas automáticas
 lib/seed-data/        # Fuente única: seeds SQL + fixtures + configs de deporte
-scripts/              # apply-migrations, generate-seed, security-audit, demo-volleyball
-supabase/migrations/  # 18 migraciones versionadas (RLS en todas las tablas)
+scripts/              # apply-migrations, generate-seed, security-audit, users, migrate-media
+supabase/migrations/  # 22 migraciones versionadas (RLS en todas las tablas)
+                      # (el nombre de la carpeta se conserva: ahí vive el historial)
 ```
 
 ## Recorrido por fases
 
 - **Fase 0 — Fundación** ✅ Modelo de datos completo con RLS, motor puro con pruebas (softbol + basquetbol), PWA instalable, tokens de marca ALV.
 - **Fase 1 — Mesa de anotación** ✅ `/anotador`: alineaciones → anotación de 2 taps (botones desde config) → deshacer como `correction` → finalizar con doble confirmación. Offline-first: IndexedDB + sync idempotente en orden; `/anotador/demo` para probar sin cuenta.
-- **Fase 2 — Sitio público** ✅ `/` (en vivo Realtime, próximos, resultados, líderes), `/partido/[id]` (tabs Resumen/Timeline/Estadísticas/Alineaciones), `/tabla` (desempates del config), perfiles de equipo/jugador, `/buscar`. Lighthouse mobile: home 97, partido 93.
+- **Fase 2 — Sitio público** ✅ `/` (en vivo por SSE, próximos, resultados, líderes), `/partido/[id]` (tabs Resumen/Timeline/Estadísticas/Alineaciones), `/tabla` (desempates del config), perfiles de equipo/jugador, `/buscar`. Lighthouse mobile: home 97, partido 93.
 - **Fase 3 — Admin** ✅ CRUDs con Zod es-MX, generador round-robin con vista previa, inscripciones con Mercado Pago (checkout + webhook) o efectivo, sanciones que bloquean titulares (RLS + UI), noticias/patrocinadores, auditoría.
 - **Fase 4 — Push + crónicas** ✅ "Seguir equipo" → Web Push VAPID por preferencias; envío 100% servidor vía triggers pg_net con secreto; crónicas **automáticas y deterministas** (armadas desde los datos reales del partido — marcador, figuras, récords; sin IA ni API keys) que SIEMPRE quedan en borrador "Auto — revisar" con botón Regenerar.
 - **Fase 5 — Endurecimiento y entrega** ✅ Auditoría de seguridad 6/6, rate limiting, firma MP, paginación, EXPLAIN, 404/error ALV, voleibol por pura configuración, este README.
