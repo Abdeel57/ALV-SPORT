@@ -38,24 +38,33 @@ function clientIp(request: NextRequest): string {
 async function refreshSession(
   request: NextRequest,
   response: NextResponse,
-): Promise<void> {
+): Promise<boolean> {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) return;
+  if (!token) return false;
 
   try {
     const claims = await verifySession(token);
     if (!claims) {
       // Firma inválida o expirada: se limpia para no reintentarla en cada request.
       response.cookies.set(SESSION_COOKIE, "", cookieOptions(0));
-      return;
+      return false;
     }
     if (claims.exp - nowSeconds() < SESSION_REFRESH_SECONDS) {
       const renewed = await signSession({ sub: claims.sub, email: claims.email });
       response.cookies.set(SESSION_COOKIE, renewed, cookieOptions(SESSION_TTL_SECONDS));
     }
+    return true;
   } catch {
     // Sin AUTH_SECRET configurado la app sigue sirviendo el sitio público.
+    return false;
   }
+}
+
+/** Zonas que exigen sesión: el panel y la mesa (salvo la demo local). */
+function requiresSession(path: string): boolean {
+  if (!process.env.DATABASE_URL) return false;
+  if (path.startsWith("/admin")) return true;
+  return path.startsWith("/anotador") && !path.startsWith("/anotador/demo");
 }
 
 export async function middleware(request: NextRequest) {
@@ -82,7 +91,14 @@ export async function middleware(request: NextRequest) {
   }
 
   const response = NextResponse.next({ request });
-  await refreshSession(request, response);
+  const authenticated = await refreshSession(request, response);
+  // Sin sesión, el panel redirige aquí mismo: ni el cascarón del layout
+  // llega a renderizarse.
+  if (!authenticated && requiresSession(path) && request.method === "GET") {
+    const login = new URL("/login", request.url);
+    login.searchParams.set("next", path);
+    return NextResponse.redirect(login);
+  }
   return response;
 }
 
