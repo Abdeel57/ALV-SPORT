@@ -1,9 +1,12 @@
 # Migración a dos servicios — guía de corte
 
 > **Estado: MIGRACIÓN COMPLETA el 2026-09-10.** Los 8 servicios de Supabase
-> fueron eliminados. El proyecto quedó en dos servicios:  y .
-> Las imágenes originales están archivadas en
->  (47 archivos, fuera de git).
+> fueron eliminados. El proyecto quedó en dos servicios: `app` y `Postgres`,
+> más sus dos volúmenes. Las 47 imágenes originales de Storage quedaron
+> archivadas en `backups/imagenes-storage-originales/` (fuera de git).
+>
+> Lo que sigue es el registro de cómo se hizo, útil si algún día hay que
+> repetirlo o entender por qué algo quedó como quedó.
 
 De **9 servicios** en Railway (Supabase autoalojado) a **2**: la app y Postgres.
 
