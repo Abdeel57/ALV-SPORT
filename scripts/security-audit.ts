@@ -17,11 +17,41 @@ import { Client } from "pg";
 
 const APP_URL = process.env.APP_URL ?? "";
 
-const ORG_ID = "01000000-0000-4000-8000-000000000001";
-const SEASON_SOFTBALL = "04000000-0000-4000-8000-000000000001";
-const TEAM_COYOTES = "10000000-0000-4000-8000-000000000001";
-const GAME_SCHEDULED = "30000000-0000-4000-8000-00000000000a"; // juego 10
-const GAME_FINALIZED = "30000000-0000-4000-8000-000000000001"; // juego 1
+/**
+ * Los objetivos se DESCUBREN de la base, no se codifican: así la auditoría
+ * sirve igual contra el seed de desarrollo y contra los datos reales de
+ * producción, donde los identificadores son otros.
+ */
+interface Objetivos {
+  orgId: string;
+  seasonId: string;
+  teamId: string;
+  gameOpen: string;
+  gameFinalized: string | null;
+}
+
+async function descubrirObjetivos(): Promise<Objetivos> {
+  const { rows } = await client.query<Objetivos>(`
+    select
+      (select id from public.organizations order by created_at limit 1) as "orgId",
+      (select se.id from public.seasons se
+         join public.games g on g.season_id = se.id
+        group by se.id order by count(g.id) desc limit 1) as "seasonId",
+      (select t.id from public.teams t
+         join public.games g on g.home_team_id = t.id or g.away_team_id = t.id
+        limit 1) as "teamId",
+      (select id from public.games where status <> 'finalized' order by scheduled_at limit 1)
+        as "gameOpen",
+      (select id from public.games where status = 'finalized' limit 1) as "gameFinalized"
+  `);
+  const objetivos = rows[0];
+  if (!objetivos?.orgId || !objetivos.teamId || !objetivos.gameOpen) {
+    throw new Error(
+      "La base no tiene datos suficientes para auditar (falta organización, equipo o partido).",
+    );
+  }
+  return objetivos;
+}
 
 interface Check {
   name: string;
@@ -87,6 +117,7 @@ async function cryptoSchema(): Promise<string> {
 }
 
 async function createUser(email: string, schema: string): Promise<string> {
+  // La tabla real de auth.users NO genera el id: GoTrue siempre lo proveía.
   const id = randomUUID();
   const { rows } = await client.query<{ column_name: string }>(
     `select column_name from information_schema.columns
@@ -130,6 +161,9 @@ async function main(): Promise<void> {
   client = new Client({ connectionString: databaseUrl, ssl: false });
   await client.connect();
 
+  const objetivos = await descubrirObjetivos();
+  const { orgId: ORG_ID, teamId: TEAM_TARGET, gameOpen: GAME_OPEN } = objetivos;
+  const GAME_FINALIZED = objetivos.gameFinalized;
   const schema = await cryptoSchema();
   const scorekeeperEmail = `scorekeeper-${stamp}@audit.alvsport.test`;
   const captainEmail = `captain-${stamp}@audit.alvsport.test`;
@@ -143,7 +177,7 @@ async function main(): Promise<void> {
         { kind: "anon" },
         `insert into public.game_events (game_id, event_type, period, created_by)
          values ($1, 'run', 1, '00000000-0000-4000-8000-000000000000')`,
-        [GAME_SCHEDULED],
+        [GAME_OPEN],
       );
       record("Anónimo inserta en game_events", !attempt.ok, attempt.error ?? "insertó");
     }
@@ -159,21 +193,23 @@ async function main(): Promise<void> {
     await client.query(
       `insert into public.game_assignments (game_id, user_id, role)
        values ($1, $2, 'scorekeeper')`,
-      [GAME_SCHEDULED, scorekeeperId],
+      [GAME_OPEN, scorekeeperId],
     );
     // Una inscripción ajena (pedida por otro usuario) que el capitán NO debe ver.
-    await client.query(
-      `insert into public.registrations (season_id, team_id, amount, requested_by)
-       values ($1, $2, 1500, $3)`,
-      [SEASON_SOFTBALL, TEAM_COYOTES, scorekeeperId],
-    );
+    if (objetivos.seasonId) {
+      await client.query(
+        `insert into public.registrations (season_id, team_id, amount, requested_by)
+         values ($1, $2, 1500, $3)`,
+        [objetivos.seasonId, TEAM_TARGET, scorekeeperId],
+      );
+    }
 
     // ---------- 2. Scorekeeper intenta editar equipos ----------
     {
       const attempt = await probe(
         { kind: "user", userId: scorekeeperId },
         "update public.teams set name = 'HACKEADO FC' where id = $1",
-        [TEAM_COYOTES],
+        [TEAM_TARGET],
       );
       record(
         "Scorekeeper edita el nombre de un equipo",
@@ -183,12 +219,12 @@ async function main(): Promise<void> {
     }
 
     // ---------- 3. Scorekeeper inserta evento en juego NO asignado/cerrado ----------
-    {
+    if (GAME_FINALIZED) {
       const attempt = await probe(
         { kind: "user", userId: scorekeeperId },
         `insert into public.game_events (game_id, team_id, event_type, period, created_by)
          values ($1, $2, 'run', 1, $3)`,
-        [GAME_FINALIZED, TEAM_COYOTES, scorekeeperId],
+        [GAME_FINALIZED, TEAM_TARGET, scorekeeperId],
       );
       record(
         "Scorekeeper inserta evento en partido no asignado (y finalizado)",
@@ -217,7 +253,7 @@ async function main(): Promise<void> {
         const response = await fetch(`${APP_URL}/api/hooks/${hook}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "UPDATE", record: { id: GAME_FINALIZED } }),
+          body: JSON.stringify({ type: "UPDATE", record: { id: GAME_OPEN } }),
         });
         status = response.status;
       } catch (error) {
@@ -238,8 +274,8 @@ async function main(): Promise<void> {
     // ---------- limpieza ----------
     try {
       await client.query(
-        "delete from public.registrations where season_id = $1 and team_id = $2 and requested_by = $3",
-        [SEASON_SOFTBALL, TEAM_COYOTES, scorekeeperId],
+        "delete from public.registrations where requested_by = $1",
+        [scorekeeperId],
       );
       await client.query("delete from auth.users where email = any($1::text[])", [
         [scorekeeperEmail, captainEmail],

@@ -5,10 +5,13 @@
  *   DATABASE_URL="postgresql://..." \
  *   STORAGE_BASE_URL="https://kong-production-xxxx.up.railway.app" \
  *   MEDIA_ROOT="/var/lib/alv-media" \
- *   pnpm tsx scripts/migrate-media.ts [--apply]
+ *   pnpm tsx scripts/migrate-media.ts [--apply | --download-only]
  *
- * SIN --apply solo reporta qué haría (no toca nada). Con --apply descarga
- * cada archivo, lo guarda en MEDIA_ROOT y actualiza la fila.
+ * SIN banderas solo reporta qué haría (no toca nada).
+ * `--download-only` baja los archivos a MEDIA_ROOT y NO toca la base: sirve
+ * para dejar las imágenes en su destino ANTES de cambiar las URLs, de modo
+ * que el sitio nunca quede unos minutos con imágenes rotas.
+ * `--apply` hace lo mismo y además actualiza cada fila.
  *
  * NUNCA borra nada: los archivos siguen en Storage después de correrlo, así
  * que se puede repetir y se puede volver atrás restaurando las URLs.
@@ -70,7 +73,9 @@ async function exists(path: string): Promise<boolean> {
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("Falta DATABASE_URL");
-  const apply = process.argv.includes("--apply");
+  const downloadOnly = process.argv.includes("--download-only");
+  const apply = process.argv.includes("--apply") || downloadOnly;
+  const rewrite = process.argv.includes("--apply");
   const root = mediaRoot();
 
   const client = new Client({ connectionString: databaseUrl, ssl: false });
@@ -116,10 +121,12 @@ async function main(): Promise<void> {
             await mkdir(dirname(destination), { recursive: true });
             await writeFile(destination, bytes);
           }
-          await client.query(
-            `update public.${target.table} set ${target.column} = $1 where id = $2`,
-            [newUrl, row.id],
-          );
+          if (rewrite) {
+            await client.query(
+              `update public.${target.table} set ${target.column} = $1 where id = $2`,
+              [newUrl, row.id],
+            );
+          }
           copied += 1;
           console.log(`  ✓ ${newUrl}`);
         } catch (error) {
@@ -136,7 +143,7 @@ async function main(): Promise<void> {
   console.log("\n---");
   console.log(`Archivos de Storage encontrados: ${found}`);
   if (apply) {
-    console.log(`Copiados y reescritos: ${copied}`);
+    console.log(rewrite ? `Copiados y reescritos: ${copied}` : `Copiados (sin tocar la base): ${copied}`);
     console.log(`Fallidos: ${failures.length}`);
     if (failures.length > 0) {
       console.log("\nRevisa estos a mano (el original sigue en Storage):");
