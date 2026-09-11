@@ -169,6 +169,16 @@
   }
   html {
     @apply font-sans;
+    /* Sensación de app en móvil: sin destello gris al tocar ni zoom por doble
+       toque (el pellizco sigue disponible); el texto no se reescala solo. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+  body {
+    /* Sin rebote ni "tirar para recargar" del navegador: la vista se siente
+       anclada como en una app; los marcadores en vivo ya se actualizan solos. */
+    overscroll-behavior-y: contain;
   }
 }
 
@@ -237,6 +247,20 @@
     &:hover {
       transform: translateY(-2px);
     }
+  }
+  /* En pantallas táctiles no hay hover: la tarjeta se hunde un poco al tocarla. */
+  @media (hover: none) and (prefers-reduced-motion: no-preference) {
+    &:active {
+      transform: scale(0.985);
+      transition-duration: 80ms;
+    }
+  }
+}
+
+/* Entrada de cada vista pública al navegar (ver app/(public)/template.tsx). */
+@utility page-enter {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: alv-page-enter 220ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   }
 }
 
@@ -532,4 +556,8 @@ input[type="reset"] {
 @keyframes alv-slide-down {
   from { transform: translateY(0); }
   to { transform: translateY(100%); }
+}
+@keyframes alv-page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }

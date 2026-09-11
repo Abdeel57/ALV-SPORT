@@ -65,9 +65,11 @@ const serwist = new Serwist({
     },
     {
       matcher: ({ request }) => request.destination === "document",
+      // Timeout amplio: con 3 s una red móvil lenta hacía caer a la copia
+      // vieja y la gente veía la versión anterior del sitio tras un despliegue.
       handler: new NetworkFirst({
         cacheName: "alv-pages",
-        networkTimeoutSeconds: 3,
+        networkTimeoutSeconds: 12,
         plugins: [
           new CacheableResponsePlugin({ statuses: [0, 200] }),
           new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 }),

@@ -44,7 +44,7 @@ export function LeagueChips({
   trailing?: React.ReactNode;
 }) {
   return (
-    <nav aria-label="Ligas" className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
+    <nav aria-label="Ligas" className="-mx-4 flex snap-x snap-proximity items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
       {leagues.map((league, index) => {
         const active = league.slug === activeSlug;
         const accent = league.color ?? null;
@@ -53,7 +53,7 @@ export function LeagueChips({
             key={league.slug}
             href={hrefFor(league.slug, index)}
             aria-current={active ? "page" : undefined}
-            className={`relative shrink-0 -skew-x-12 border px-3.5 py-2 text-sm whitespace-nowrap transition-all duration-150 motion-safe:active:scale-[.96] ${
+            className={`relative shrink-0 snap-start -skew-x-12 border px-3.5 py-2 text-sm whitespace-nowrap transition-all duration-150 motion-safe:active:scale-[.96] ${
               active
                 ? "border-brand-amber/70 bg-secondary shadow-[inset_0_-2px_0_var(--brand-amber)]"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"

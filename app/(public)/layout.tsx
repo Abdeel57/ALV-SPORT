@@ -1,5 +1,7 @@
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { BismarkCredit } from "@/components/public/bismark-credit";
+import { InstallBanner } from "@/components/public/install-banner";
+import { MobileTabBar } from "@/components/public/mobile-tab-bar";
 import { SiteHeader } from "@/components/public/site-header";
 import { SponsorStrip } from "@/components/public/sponsor-strip";
 import { SponsorTicker } from "@/components/public/sponsor-ticker";
@@ -10,8 +12,10 @@ export default async function PublicLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const sponsors = await getSponsors();
   return (
-    <div className="flex min-h-dvh flex-col">
+    // En móvil el contenido deja sitio a la barra de pestañas inferior.
+    <div className="flex min-h-dvh flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">
       <SiteHeader />
+      <InstallBanner />
       <div className="flex-1">{children}</div>
       <footer className="relative mt-12 border-t border-white/5">
         <div className="bg-brand-gradient absolute inset-x-0 top-0 h-px opacity-40" aria-hidden />
@@ -28,6 +32,7 @@ export default async function PublicLayout({
         <BismarkCredit />
       </footer>
       <SponsorTicker sponsors={tickerSponsors(sponsors)} />
+      <MobileTabBar />
     </div>
   );
 }

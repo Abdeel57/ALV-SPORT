@@ -24,10 +24,33 @@ export default async function BuscarPage({ searchParams }: PageProps) {
         {q.trim().length >= 2 ? `Resultados para “${q}”` : "Buscar"}
       </SectionTitle>
 
+      {/* En móvil este es el único buscador (la cabecera solo lleva el logo). */}
+      <form action="/buscar" role="search" className="flex gap-2">
+        <label htmlFor="buscar-q" className="sr-only">
+          Buscar equipos, jugadores o partidos
+        </label>
+        <input
+          id="buscar-q"
+          type="search"
+          name="q"
+          defaultValue={q}
+          autoFocus={q.trim().length === 0}
+          placeholder="Equipo, jugador o partido…"
+          enterKeyHint="search"
+          autoComplete="off"
+          className="h-12 min-w-0 flex-1 rounded-full border border-brand-silver/20 bg-surface/80 px-4 text-base outline-none transition-colors duration-200 placeholder:text-muted-foreground/60 focus-visible:border-brand-amber/60"
+        />
+        <button
+          type="submit"
+          className="h-12 shrink-0 rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform motion-safe:active:scale-95"
+        >
+          Buscar
+        </button>
+      </form>
+
       {q.trim().length < 2 ? (
         <EmptyState>
-          Escribe al menos dos letras en el buscador del encabezado para
-          encontrar equipos, jugadores y partidos.
+          Escribe al menos dos letras para encontrar equipos, jugadores y partidos.
         </EmptyState>
       ) : !hasResults ? (
         <EmptyState>

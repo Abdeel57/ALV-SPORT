@@ -13,7 +13,7 @@ import type { PublicSponsor } from "@/lib/data/extras";
  * crítico). Con reduced-motion aparece y desaparece sin deslizar.
  */
 
-const FIRST_DELAY_MS = 10_000;
+const FIRST_DELAY_MS = 5_000;
 const INTERVAL_MS = 60_000;
 const VISIBLE_MS = 8_000;
 const EXIT_MS = 260;
@@ -113,9 +113,10 @@ export function SponsorTicker({ sponsors }: { sponsors: PublicSponsor[] }) {
     <div
       role="complementary"
       aria-label={`Patrocinador: ${sponsor.name}`}
-      className={`fixed inset-x-0 bottom-0 z-40 ${phase === "in" ? "sponsor-bar-in" : "sponsor-bar-out"}`}
+      // En móvil sube por encima de la barra de pestañas; en escritorio, pegada al borde.
+      className={`fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 sm:bottom-0 ${phase === "in" ? "sponsor-bar-in" : "sponsor-bar-out"}`}
     >
-      <div className="border-t border-brand-silver/15 bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgb(0_0_0/0.45)] backdrop-blur-md">
+      <div className="border-t border-brand-silver/15 bg-card/95 shadow-[0_-8px_30px_rgb(0_0_0/0.45)] backdrop-blur-md sm:pb-[env(safe-area-inset-bottom)]">
         <span className="bg-brand-gradient block h-px opacity-60" aria-hidden />
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4">
           <span className="hidden shrink-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase sm:inline">
