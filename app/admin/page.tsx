@@ -12,6 +12,7 @@ import Link from "next/link";
 import { InstallAppButton } from "@/components/admin/install-app";
 import { AdminTitle, EmptyRow, StatusChip } from "@/components/admin/ui";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -107,7 +108,7 @@ const quickActions: { href: string; label: string; icon: LucideIcon }[] = [
 export default async function AdminDashboard() {
   const context = await requireAdmin();
   if (!context) return null; // el layout ya mostró el aviso de configuración
-  const { supabase, role } = context;
+  const { db, role } = context;
 
   const now = new Date();
   const dayStart = new Date(now);
@@ -115,51 +116,47 @@ export default async function AdminDashboard() {
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const weekEnd = new Date(dayStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [todayGames, pendingRegs, activeSanctions, pendingSignups, upcoming] = await Promise.all([
-    supabase
-      .from("games")
-      .select(
-        "id, status, scheduled_at, home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name)",
-      )
-      .or(
-        `and(scheduled_at.gte.${dayStart.toISOString()},scheduled_at.lt.${dayEnd.toISOString()}),status.eq.in_progress`,
-      )
-      .order("scheduled_at"),
-    supabase
-      .from("registrations")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending"),
-    supabase
-      .from("sanctions")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "active"),
-    supabase
-      .from("signup_requests")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["pending", "contacted"]),
-    supabase
-      .from("games")
-      .select("id")
-      .eq("status", "scheduled")
-      .gte("scheduled_at", dayStart.toISOString())
-      .lt("scheduled_at", weekEnd.toISOString()),
+  const [games, counters] = await Promise.all([
+    db.rows<GameRow>(sql`
+      select g.id, g.status::text as status, g.scheduled_at,
+             case when h.id is null then null
+                  else json_build_object('name', h.name) end as home,
+             case when a.id is null then null
+                  else json_build_object('name', a.name) end as away
+        from public.games g
+        left join public.teams h on h.id = g.home_team_id
+        left join public.teams a on a.id = g.away_team_id
+       where (g.scheduled_at >= ${dayStart.toISOString()}
+              and g.scheduled_at < ${dayEnd.toISOString()})
+          or g.status = 'in_progress'
+       order by g.scheduled_at
+    `),
+    // Los cuatro indicadores de la portada, en una sola consulta.
+    db.one<{
+      pending_regs: number;
+      active_sanctions: number;
+      pending_signups: number;
+      without_scorekeeper: number;
+    }>(sql`
+      select
+        (select count(*)::int from public.registrations where status = 'pending')
+          as pending_regs,
+        (select count(*)::int from public.sanctions where status = 'active')
+          as active_sanctions,
+        (select count(*)::int from public.signup_requests
+          where status in ('pending', 'contacted')) as pending_signups,
+        (select count(*)::int
+           from public.games g
+          where g.status = 'scheduled'
+            and g.scheduled_at >= ${dayStart.toISOString()}
+            and g.scheduled_at < ${weekEnd.toISOString()}
+            and not exists (
+              select 1 from public.game_assignments ga
+               where ga.game_id = g.id and ga.role = 'scorekeeper'
+            )) as without_scorekeeper
+    `),
   ]);
-
-  const upcomingIds = ((upcoming.data ?? []) as { id: string }[]).map((g) => g.id);
-  let withoutScorekeeper = 0;
-  if (upcomingIds.length > 0) {
-    const { data: assigned } = await supabase
-      .from("game_assignments")
-      .select("game_id")
-      .in("game_id", upcomingIds)
-      .eq("role", "scorekeeper");
-    const assignedIds = new Set(
-      ((assigned ?? []) as { game_id: string }[]).map((a) => a.game_id),
-    );
-    withoutScorekeeper = upcomingIds.filter((id) => !assignedIds.has(id)).length;
-  }
-
-  const games = (todayGames.data ?? []) as unknown as GameRow[];
+  const withoutScorekeeper = counters.without_scorekeeper;
   const todayLabel = dateFormat.format(now);
 
   return (
@@ -185,21 +182,21 @@ export default async function AdminDashboard() {
         className="grid grid-cols-2 gap-3 sm:grid-cols-4"
       >
         <StatTile
-          value={pendingSignups.count ?? 0}
+          value={counters.pending_signups}
           label="Solicitudes por revisar"
           href="/admin/solicitudes"
           tone="amber"
           icon={ClipboardCheck}
         />
         <StatTile
-          value={pendingRegs.count ?? 0}
+          value={counters.pending_regs}
           label="Pagos por confirmar"
           href="/admin/inscripciones"
           tone="amber"
           icon={CreditCard}
         />
         <StatTile
-          value={activeSanctions.count ?? 0}
+          value={counters.active_sanctions}
           label="Sanciones activas"
           href="/admin/sanciones"
           tone="red"

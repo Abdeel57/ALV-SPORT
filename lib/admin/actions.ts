@@ -28,6 +28,8 @@ import {
   venueSchema,
 } from "./schemas";
 import { parseRosterList } from "./roster-list";
+import { assign, ident, insertRow, insertRows, sql, type SqlValue } from "@/lib/db";
+import { MediaError, saveImage, type MediaBucket } from "@/lib/media/store";
 import { assignSlots, generateRoundRobin, sportConfigSchema } from "@/lib/engine";
 import { approveCoachSchema, approvePlayerSchema } from "@/lib/signup/schemas";
 import { seasonLabel, slugify, splitFullName } from "@/lib/utils";
@@ -52,52 +54,94 @@ function firstIssue(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Datos inválidos";
 }
 
-function parse<T>(
-  schema: z.ZodType<T>,
-  formData: FormData,
-  path: string,
-): T {
+function parse<T>(schema: z.ZodType<T>, formData: FormData, path: string): T {
   const result = schema.safeParse(formDataToObject(formData));
   if (!result.success) fail(path, firstIssue(result.error));
   return result.data;
 }
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+/* --------------------- Errores de la base de datos -------------------- */
+
+/**
+ * `redirect()` y `notFound()` de Next funcionan lanzando una excepción con
+ * `digest`. Nunca deben confundirse con un error de la base.
+ */
+function isControlFlow(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "digest" in error &&
+      typeof (error as { digest: unknown }).digest === "string",
+  );
+}
+
+function dbMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return "Error de base de datos";
+}
+
+/** Código SQLSTATE del error de Postgres (23505 = duplicado, 23503 = referencia). */
+function dbCode(error: unknown): string | null {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code: unknown }).code;
+    return typeof code === "string" ? code : null;
+  }
+  return null;
+}
+
+/**
+ * Ejecuta una operación contra la base y convierte cualquier fallo en el
+ * mismo mensaje de error que ya mostraba el panel.
+ */
+async function run<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isControlFlow(error)) throw error;
+    fail(path, dbMessage(error));
+  }
+}
+
+/* ------------------------------ Imágenes ------------------------------ */
 
 async function uploadImage(
   context: AdminContext,
-  bucket: string,
+  bucket: MediaBucket,
   formData: FormData,
   field: string,
   path: string,
 ): Promise<string | null> {
   const file = formData.get(field);
   if (!(file instanceof File) || file.size === 0) return null;
-  if (file.size > MAX_IMAGE_BYTES) fail(path, "La imagen no debe exceder 4 MB");
-  if (!file.type.startsWith("image/")) fail(path, "El archivo debe ser una imagen");
-  const ext =
-    (file.name.split(".").pop() ?? "png").toLowerCase().replace(/[^a-z0-9]/g, "") ||
-    "png";
-  const objectPath = `${context.organizationId}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await context.supabase.storage
-    .from(bucket)
-    .upload(objectPath, file, { contentType: file.type });
-  if (error) fail(path, `No se pudo subir la imagen: ${error.message}`);
-  return context.supabase.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl;
+  try {
+    return await saveImage(bucket, context.organizationId, file);
+  } catch (error) {
+    if (isControlFlow(error)) throw error;
+    if (error instanceof MediaError) fail(path, error.message);
+    fail(path, `No se pudo subir la imagen: ${dbMessage(error)}`);
+  }
 }
+
+/* --------------------------- CRUD genérico ---------------------------- */
 
 async function upsertRow(
   context: AdminContext,
   table: string,
   id: string | undefined,
-  row: Record<string, unknown>,
+  row: Record<string, SqlValue>,
   path: string,
 ): Promise<void> {
-  const query = id
-    ? context.supabase.from(table).update(row).eq("id", id)
-    : context.supabase.from(table).insert(row);
-  const { error } = await query;
-  if (error) fail(path, error.message);
+  await run(path, () =>
+    id
+      ? context.db.exec(
+          sql`update ${ident("public", table)} set ${assign(row)} where id = ${id}`,
+        )
+      : context.db.exec(
+          sql`insert into ${ident("public", table)} ${insertRow(row)}`,
+        ),
+  );
 }
 
 async function deleteRow(
@@ -106,8 +150,9 @@ async function deleteRow(
   id: string,
   path: string,
 ): Promise<never> {
-  const { error } = await context.supabase.from(table).delete().eq("id", id);
-  if (error) fail(path, error.message);
+  await run(path, () =>
+    context.db.exec(sql`delete from ${ident("public", table)} where id = ${id}`),
+  );
   done(path);
 }
 
@@ -124,7 +169,7 @@ export async function saveLeague(formData: FormData): Promise<void> {
     // Edición: identidad únicamente. El deporte y el slug no cambian una vez
     // creada la liga (cambiar el deporte rompería eventos/standings; el slug
     // es la URL pública).
-    const row: Record<string, unknown> = { name: data.name, color: data.color };
+    const row: Record<string, SqlValue> = { name: data.name, color: data.color };
     if (logoUrl) row.logo_url = logoUrl;
     await upsertRow(context, "leagues", data.id, row, LEAGUES);
     done(LEAGUES);
@@ -133,56 +178,61 @@ export async function saveLeague(formData: FormData): Promise<void> {
   // Alta con asistente: liga → primera temporada → divisiones. La liga nace
   // OCULTA (is_published default false): se arma completa en privado y se
   // publica con el switch cuando está lista.
-  const { data: inserted, error } = await context.supabase
-    .from("leagues")
-    .insert({
-      organization_id: context.organizationId,
-      sport_id: data.sportId,
-      name: data.name,
-      slug: slugify(data.name),
-      color: data.color,
-      logo_url: logoUrl,
-    })
-    .select("id")
-    .single();
-  if (error || !inserted) {
+  let leagueId: string;
+  try {
+    const inserted = await context.db.one<{ id: string }>(sql`
+      insert into public.leagues (organization_id, sport_id, name, slug, color, logo_url)
+      values (${context.organizationId}, ${data.sportId}, ${data.name},
+              ${slugify(data.name)}, ${data.color}, ${logoUrl})
+      returning id
+    `);
+    leagueId = inserted.id;
+  } catch (error) {
+    if (isControlFlow(error)) throw error;
     fail(
       LEAGUES,
-      error?.code === "23505"
+      dbCode(error) === "23505"
         ? "Ya existe una liga con un nombre muy similar; cambia el nombre"
-        : (error?.message ?? "No se pudo crear la liga"),
+        : dbMessage(error),
     );
   }
 
   if (data.seasonName) {
-    const { data: season, error: seasonError } = await context.supabase
-      .from("seasons")
-      .insert({
-        league_id: (inserted as { id: string }).id,
-        name: data.seasonName,
-        status: "draft",
-        starts_on: data.startsOn ?? null,
-        ends_on: data.endsOn ?? null,
-      })
-      .select("id")
-      .single();
-    if (seasonError || !season) {
-      fail(LEAGUES, `La liga se creó, pero la temporada falló: ${seasonError?.message ?? "error"}`);
+    let seasonId: string;
+    try {
+      const season = await context.db.one<{ id: string }>(sql`
+        insert into public.seasons (league_id, name, status, starts_on, ends_on)
+        values (${leagueId}, ${data.seasonName}, 'draft',
+                ${data.startsOn ?? null}, ${data.endsOn ?? null})
+        returning id
+      `);
+      seasonId = season.id;
+    } catch (error) {
+      if (isControlFlow(error)) throw error;
+      fail(LEAGUES, `La liga se creó, pero la temporada falló: ${dbMessage(error)}`);
     }
+
     const divisionNames = (data.divisions ?? "")
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean);
     if (divisionNames.length > 0) {
-      const { error: divisionError } = await context.supabase.from("divisions").insert(
-        divisionNames.map((name, index) => ({
-          season_id: (season as { id: string }).id,
-          name,
-          sort_order: index,
-        })),
-      );
-      if (divisionError) {
-        fail(LEAGUES, `Liga y temporada creadas, pero las divisiones fallaron: ${divisionError.message}`);
+      try {
+        await context.db.exec(sql`
+          insert into public.divisions ${insertRows(
+            divisionNames.map((name, index) => ({
+              season_id: seasonId,
+              name,
+              sort_order: index,
+            })),
+          )}
+        `);
+      } catch (error) {
+        if (isControlFlow(error)) throw error;
+        fail(
+          LEAGUES,
+          `Liga y temporada creadas, pero las divisiones fallaron: ${dbMessage(error)}`,
+        );
       }
     }
   }
@@ -191,11 +241,11 @@ export async function saveLeague(formData: FormData): Promise<void> {
 
 export async function setLeaguePublished(id: string, publish: boolean): Promise<void> {
   const context = await ctx();
-  const { error } = await context.supabase
-    .from("leagues")
-    .update({ is_published: publish })
-    .eq("id", id);
-  if (error) fail(LEAGUES, error.message);
+  await run(LEAGUES, () =>
+    context.db.exec(
+      sql`update public.leagues set is_published = ${publish} where id = ${id}`,
+    ),
+  );
   // La compuerta de visibilidad afecta al sitio público de inmediato.
   revalidatePath("/");
   revalidatePath("/tabla");
@@ -213,13 +263,19 @@ const SEASONS = "/admin/temporadas";
 export async function saveSeason(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(seasonSchema, formData, SEASONS);
-  await upsertRow(context, "seasons", data.id, {
-    league_id: data.leagueId,
-    name: data.name,
-    status: data.status,
-    starts_on: data.startsOn ?? null,
-    ends_on: data.endsOn ?? null,
-  }, SEASONS);
+  await upsertRow(
+    context,
+    "seasons",
+    data.id,
+    {
+      league_id: data.leagueId,
+      name: data.name,
+      status: data.status,
+      starts_on: data.startsOn ?? null,
+      ends_on: data.endsOn ?? null,
+    },
+    SEASONS,
+  );
   done(SEASONS);
 }
 
@@ -230,11 +286,13 @@ export async function deleteSeason(id: string): Promise<void> {
 export async function saveDivision(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(divisionSchema, formData, SEASONS);
-  await upsertRow(context, "divisions", data.id, {
-    season_id: data.seasonId,
-    name: data.name,
-    sort_order: data.sortOrder,
-  }, SEASONS);
+  await upsertRow(
+    context,
+    "divisions",
+    data.id,
+    { season_id: data.seasonId, name: data.name, sort_order: data.sortOrder },
+    SEASONS,
+  );
   done(SEASONS);
 }
 
@@ -249,11 +307,17 @@ const VENUES = "/admin/sedes";
 export async function saveVenue(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(venueSchema, formData, VENUES);
-  await upsertRow(context, "venues", data.id, {
-    organization_id: context.organizationId,
-    name: data.name,
-    address: data.address ?? null,
-  }, VENUES);
+  await upsertRow(
+    context,
+    "venues",
+    data.id,
+    {
+      organization_id: context.organizationId,
+      name: data.name,
+      address: data.address ?? null,
+    },
+    VENUES,
+  );
   done(VENUES);
 }
 
@@ -264,10 +328,13 @@ export async function deleteVenue(id: string): Promise<void> {
 export async function saveCourt(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(courtSchema, formData, VENUES);
-  await upsertRow(context, "courts", data.id, {
-    venue_id: data.venueId,
-    name: data.name,
-  }, VENUES);
+  await upsertRow(
+    context,
+    "courts",
+    data.id,
+    { venue_id: data.venueId, name: data.name },
+    VENUES,
+  );
   done(VENUES);
 }
 
@@ -283,7 +350,7 @@ export async function saveTeam(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(teamSchema, formData, TEAMS);
   const logoUrl = await uploadImage(context, "team-logos", formData, "logo", TEAMS);
-  const row: Record<string, unknown> = {
+  const row: Record<string, SqlValue> = {
     organization_id: context.organizationId,
     division_id: data.divisionId,
     name: data.name,
@@ -307,7 +374,7 @@ export async function savePlayer(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(playerSchema, formData, PLAYERS);
   const photoUrl = await uploadImage(context, "player-photos", formData, "photo", PLAYERS);
-  const row: Record<string, unknown> = {
+  const row: Record<string, SqlValue> = {
     organization_id: context.organizationId,
     first_name: data.firstName,
     last_name: data.lastName,
@@ -327,32 +394,33 @@ export async function assignToRoster(formData: FormData): Promise<void> {
   const data = parse(rosterAssignSchema, formData, PLAYERS);
 
   // Elegibilidad: el jugador no puede estar en otro equipo de la misma división.
-  const { data: teamRow } = await context.supabase
-    .from("teams")
-    .select("division_id")
-    .eq("id", data.teamId)
-    .single();
-  const divisionId = (teamRow as { division_id: string } | null)?.division_id;
-  if (!divisionId) fail(PLAYERS, "Equipo inválido");
-  const { data: conflict } = await context.supabase
-    .from("rosters")
-    .select("id, teams!inner(division_id)")
-    .eq("player_id", data.playerId)
-    .eq("status", "active")
-    .eq("teams.division_id", divisionId)
-    .limit(1)
-    .maybeSingle();
-  if (conflict) {
-    fail(PLAYERS, "El jugador ya está en un roster de esta división");
-  }
+  const team = await run(PLAYERS, () =>
+    context.db.maybeOne<{ division_id: string }>(sql`
+      select division_id from public.teams where id = ${data.teamId} limit 1
+    `),
+  );
+  if (!team) fail(PLAYERS, "Equipo inválido");
 
-  const { error } = await context.supabase.from("rosters").insert({
-    team_id: data.teamId,
-    player_id: data.playerId,
-    jersey_number: data.jerseyNumber ?? null,
-    position: data.position ?? null,
-  });
-  if (error) fail(PLAYERS, error.message);
+  const conflict = await run(PLAYERS, () =>
+    context.db.maybeOne<{ id: string }>(sql`
+      select r.id
+        from public.rosters r
+        join public.teams t on t.id = r.team_id
+       where r.player_id = ${data.playerId}
+         and r.status = 'active'
+         and t.division_id = ${team.division_id}
+       limit 1
+    `),
+  );
+  if (conflict) fail(PLAYERS, "El jugador ya está en un roster de esta división");
+
+  await run(PLAYERS, () =>
+    context.db.exec(sql`
+      insert into public.rosters (team_id, player_id, jersey_number, position)
+      values (${data.teamId}, ${data.playerId}, ${data.jerseyNumber ?? null},
+              ${data.position ?? null})
+    `),
+  );
   done(PLAYERS);
 }
 
@@ -373,24 +441,26 @@ export async function bulkAssignRoster(formData: FormData): Promise<void> {
   const { entries, errors } = parseRosterList(data.list);
   if (errors.length > 0) fail(PLAYERS, errors.slice(0, 3).join(" · "));
 
-  const { data: teamRow } = await context.supabase
-    .from("teams")
-    .select("division_id, name")
-    .eq("id", data.teamId)
-    .single();
-  const team = teamRow as { division_id: string; name: string } | null;
+  const team = await run(PLAYERS, () =>
+    context.db.maybeOne<{ division_id: string; name: string }>(sql`
+      select division_id, name from public.teams where id = ${data.teamId} limit 1
+    `),
+  );
   if (!team) fail(PLAYERS, "Equipo inválido");
 
   // Reusar homónimos exactos de la organización (RLS acota el tenant).
   const nameKey = (first: string, last: string) =>
     `${first} ${last}`.toLocaleLowerCase("es-MX");
-  const { data: playerRows } = await context.supabase
-    .from("players")
-    .select("id, first_name, last_name");
+  const playerRows = await run(PLAYERS, () =>
+    context.db.rows<{ id: string; first_name: string; last_name: string }>(sql`
+      select id, first_name, last_name from public.players
+    `),
+  );
   const existingByName = new Map(
-    ((playerRows ?? []) as { id: string; first_name: string; last_name: string }[]).map(
-      (player) => [nameKey(player.first_name, player.last_name), player.id],
-    ),
+    playerRows.map((player) => [
+      nameKey(player.first_name, player.last_name),
+      player.id,
+    ]),
   );
 
   const matchedIds = entries
@@ -398,38 +468,41 @@ export async function bulkAssignRoster(formData: FormData): Promise<void> {
     .filter((id): id is string => id !== undefined);
   const alreadyInDivision = new Set<string>();
   if (matchedIds.length > 0) {
-    const { data: conflictRows } = await context.supabase
-      .from("rosters")
-      .select("player_id, teams!inner(division_id)")
-      .in("player_id", matchedIds)
-      .eq("status", "active")
-      .eq("teams.division_id", team.division_id);
-    for (const row of (conflictRows ?? []) as { player_id: string }[]) {
-      alreadyInDivision.add(row.player_id);
-    }
+    const conflictRows = await run(PLAYERS, () =>
+      context.db.rows<{ player_id: string }>(sql`
+        select r.player_id
+          from public.rosters r
+          join public.teams t on t.id = r.team_id
+         where r.player_id = any(${matchedIds}::uuid[])
+           and r.status = 'active'
+           and t.division_id = ${team.division_id}
+      `),
+    );
+    for (const row of conflictRows) alreadyInDivision.add(row.player_id);
   }
 
   const toCreate = entries.filter(
     (entry) => !existingByName.has(nameKey(entry.firstName, entry.lastName)),
   );
   if (toCreate.length > 0) {
-    const { data: createdRows, error: createError } = await context.supabase
-      .from("players")
-      .insert(
-        toCreate.map((entry) => ({
-          organization_id: context.organizationId,
-          first_name: entry.firstName,
-          last_name: entry.lastName,
-        })),
-      )
-      .select("id, first_name, last_name");
-    if (createError) fail(PLAYERS, createError.message);
-    for (const row of (createdRows ?? []) as { id: string; first_name: string; last_name: string }[]) {
+    const createdRows = await run(PLAYERS, () =>
+      context.db.rows<{ id: string; first_name: string; last_name: string }>(sql`
+        insert into public.players ${insertRows(
+          toCreate.map((entry) => ({
+            organization_id: context.organizationId,
+            first_name: entry.firstName,
+            last_name: entry.lastName,
+          })),
+        )}
+        returning id, first_name, last_name
+      `),
+    );
+    for (const row of createdRows) {
       existingByName.set(nameKey(row.first_name, row.last_name), row.id);
     }
   }
 
-  const rosterRows: { team_id: string; player_id: string; jersey_number: string | null }[] = [];
+  const rosterRows: Record<string, SqlValue>[] = [];
   let skipped = 0;
   for (const entry of entries) {
     const playerId = existingByName.get(nameKey(entry.firstName, entry.lastName));
@@ -445,13 +518,16 @@ export async function bulkAssignRoster(formData: FormData): Promise<void> {
     });
   }
   if (rosterRows.length > 0) {
-    const { error } = await context.supabase.from("rosters").insert(rosterRows);
-    if (error) fail(PLAYERS, error.message);
+    await run(PLAYERS, () =>
+      context.db.exec(sql`insert into public.rosters ${insertRows(rosterRows)}`),
+    );
   }
 
   const message =
     `${rosterRows.length} jugador${rosterRows.length === 1 ? "" : "es"} en el roster de ${team.name}` +
-    (skipped > 0 ? ` · ${skipped} ya estaba${skipped === 1 ? "" : "n"} en la división (omitidos)` : "");
+    (skipped > 0
+      ? ` · ${skipped} ya estaba${skipped === 1 ? "" : "n"} en la división (omitidos)`
+      : "");
   revalidatePath(PLAYERS);
   revalidatePath("/admin");
   redirect(`${PLAYERS}?ok=${encodeURIComponent(message)}`);
@@ -466,31 +542,27 @@ export async function publishSchedule(formData: FormData): Promise<void> {
   const generatePath = "/admin/calendario/generar";
   const data = parse(scheduleConfigSchema, formData, generatePath);
 
-  const { data: teamRows } = await context.supabase
-    .from("teams")
-    .select("id")
-    .eq("division_id", data.divisionId);
-  const teamIds = ((teamRows ?? []) as { id: string }[]).map((row) => row.id);
+  const teamRows = await run(generatePath, () =>
+    context.db.rows<{ id: string }>(sql`
+      select id from public.teams where division_id = ${data.divisionId}
+    `),
+  );
+  const teamIds = teamRows.map((row) => row.id);
   if (teamIds.length < 2) fail(generatePath, "La división necesita al menos 2 equipos");
 
-  const { data: divisionRow } = await context.supabase
-    .from("divisions")
-    .select("season_id")
-    .eq("id", data.divisionId)
-    .single();
-  const seasonId = (divisionRow as { season_id: string } | null)?.season_id;
-  if (!seasonId) fail(generatePath, "División inválida");
-
-  const { data: courtRows } = await context.supabase
-    .from("courts")
-    .select("id, venue_id")
-    .in("id", data.courtIds);
-  const venueByCourt = new Map(
-    ((courtRows ?? []) as { id: string; venue_id: string }[]).map((row) => [
-      row.id,
-      row.venue_id,
-    ]),
+  const division = await run(generatePath, () =>
+    context.db.maybeOne<{ season_id: string }>(sql`
+      select season_id from public.divisions where id = ${data.divisionId} limit 1
+    `),
   );
+  if (!division) fail(generatePath, "División inválida");
+
+  const courtRows = await run(generatePath, () =>
+    context.db.rows<{ id: string; venue_id: string }>(sql`
+      select id, venue_id from public.courts where id = any(${data.courtIds}::uuid[])
+    `),
+  );
+  const venueByCourt = new Map(courtRows.map((row) => [row.id, row.venue_id]));
 
   const fixtures = assignSlots(
     generateRoundRobin(teamIds, { doubleRound: data.doubleRound }),
@@ -509,10 +581,12 @@ export async function publishSchedule(formData: FormData): Promise<void> {
   const included = data.include
     ? fixtures.filter((_, index) => data.include?.includes(index))
     : fixtures;
-  if (included.length === 0) fail(generatePath, "Selecciona al menos un partido para publicar");
+  if (included.length === 0) {
+    fail(generatePath, "Selecciona al menos un partido para publicar");
+  }
 
-  const rows = included.map((fixture) => ({
-    season_id: seasonId,
+  const rows: Record<string, SqlValue>[] = included.map((fixture) => ({
+    season_id: division.season_id,
     division_id: data.divisionId,
     home_team_id: fixture.homeTeamId,
     away_team_id: fixture.awayTeamId,
@@ -521,8 +595,9 @@ export async function publishSchedule(formData: FormData): Promise<void> {
     scheduled_at: fixture.scheduledAt,
     status: "scheduled",
   }));
-  const { error } = await context.supabase.from("games").insert(rows);
-  if (error) fail(generatePath, error.message);
+  await run(generatePath, () =>
+    context.db.exec(sql`insert into public.games ${insertRows(rows)}`),
+  );
   done(SCHEDULE);
 }
 
@@ -541,12 +616,10 @@ async function venueIdForCourt(
   courtId: string | null,
 ): Promise<string | null> {
   if (!courtId) return null;
-  const { data: courtRow } = await context.supabase
-    .from("courts")
-    .select("venue_id")
-    .eq("id", courtId)
-    .single();
-  return (courtRow as { venue_id: string } | null)?.venue_id ?? null;
+  const court = await context.db.maybeOne<{ venue_id: string }>(sql`
+    select venue_id from public.courts where id = ${courtId} limit 1
+  `);
+  return court?.venue_id ?? null;
 }
 
 /** Ambos equipos deben existir y pertenecer a la división del partido. */
@@ -556,12 +629,13 @@ async function assertTeamsInDivision(
   teamIds: readonly string[],
   path: string,
 ): Promise<void> {
-  const { data: teamRows } = await context.supabase
-    .from("teams")
-    .select("id")
-    .eq("division_id", divisionId)
-    .in("id", teamIds);
-  if ((teamRows ?? []).length !== new Set(teamIds).size) {
+  const rows = await run(path, () =>
+    context.db.rows<{ id: string }>(sql`
+      select id from public.teams
+       where division_id = ${divisionId} and id = any(${[...teamIds]}::uuid[])
+    `),
+  );
+  if (rows.length !== new Set(teamIds).size) {
     fail(path, "Los equipos deben pertenecer a la división del partido");
   }
 }
@@ -569,27 +643,31 @@ async function assertTeamsInDivision(
 export async function createGame(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(gameCreateSchema, formData, SCHEDULE);
-  await assertTeamsInDivision(context, data.divisionId, [data.homeTeamId, data.awayTeamId], SCHEDULE);
+  await assertTeamsInDivision(
+    context,
+    data.divisionId,
+    [data.homeTeamId, data.awayTeamId],
+    SCHEDULE,
+  );
 
-  const { data: divisionRow } = await context.supabase
-    .from("divisions")
-    .select("season_id")
-    .eq("id", data.divisionId)
-    .single();
-  const seasonId = (divisionRow as { season_id: string } | null)?.season_id;
-  if (!seasonId) fail(SCHEDULE, "División inválida");
+  const division = await run(SCHEDULE, () =>
+    context.db.maybeOne<{ season_id: string }>(sql`
+      select season_id from public.divisions where id = ${data.divisionId} limit 1
+    `),
+  );
+  if (!division) fail(SCHEDULE, "División inválida");
 
-  const { error } = await context.supabase.from("games").insert({
-    season_id: seasonId,
-    division_id: data.divisionId,
-    home_team_id: data.homeTeamId,
-    away_team_id: data.awayTeamId,
-    court_id: data.courtId,
-    venue_id: await venueIdForCourt(context, data.courtId),
-    scheduled_at: localToIso(data.scheduledAt),
-    status: "scheduled",
-  });
-  if (error) fail(SCHEDULE, error.message);
+  const venueId = await venueIdForCourt(context, data.courtId);
+  await run(SCHEDULE, () =>
+    context.db.exec(sql`
+      insert into public.games
+        (season_id, division_id, home_team_id, away_team_id, court_id, venue_id,
+         scheduled_at, status)
+      values (${division.season_id}, ${data.divisionId}, ${data.homeTeamId},
+              ${data.awayTeamId}, ${data.courtId}, ${venueId},
+              ${localToIso(data.scheduledAt)}, 'scheduled')
+    `),
+  );
   done(SCHEDULE);
 }
 
@@ -603,18 +681,20 @@ export async function submitFinalScore(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(finalScoreSchema, formData, SCHEDULE);
 
-  const { data: gameData } = await context.supabase
-    .from("games")
-    .select("id, status, season_id, home_team_id, away_team_id")
-    .eq("id", data.gameId)
-    .maybeSingle();
-  const game = gameData as {
-    id: string;
-    status: string;
-    season_id: string;
-    home_team_id: string;
-    away_team_id: string;
-  } | null;
+  const game = await run(SCHEDULE, () =>
+    context.db.maybeOne<{
+      id: string;
+      status: string;
+      season_id: string;
+      home_team_id: string;
+      away_team_id: string;
+    }>(sql`
+      select id, status::text as status, season_id, home_team_id, away_team_id
+        from public.games
+       where id = ${data.gameId}
+       limit 1
+    `),
+  );
   if (!game) fail(SCHEDULE, "El partido no existe");
   if (game.status === "finalized" || game.status === "canceled") {
     fail(
@@ -625,57 +705,47 @@ export async function submitFinalScore(formData: FormData): Promise<void> {
     );
   }
 
-  const { data: seasonData } = await context.supabase
-    .from("seasons")
-    .select("leagues(sports(config))")
-    .eq("id", game.season_id)
-    .single();
-  const rawConfig = (
-    seasonData as {
-      leagues: { sports: { config: unknown } | null } | null;
-    } | null
-  )?.leagues?.sports?.config;
-  const config = sportConfigSchema.parse(rawConfig);
-  const pointEvent = config.eventTypes.find(
-    (eventType) => eventType.scoreDelta === 1,
+  const season = await run(SCHEDULE, () =>
+    context.db.maybeOne<{ config: unknown }>(sql`
+      select sp.config
+        from public.seasons se
+        join public.leagues l on l.id = se.league_id
+        join public.sports sp on sp.id = l.sport_id
+       where se.id = ${game.season_id}
+       limit 1
+    `),
   );
+  const config = sportConfigSchema.parse(season?.config);
+  const pointEvent = config.eventTypes.find((eventType) => eventType.scoreDelta === 1);
   if (!pointEvent || config.standings.winnerBy === "periods_won") {
     fail(SCHEDULE, "Este deporte se define por sets: usa la mesa de anotación");
   }
 
   // Totales actuales DERIVADOS (respetan correcciones): el resultado directo
   // solo puede agregar anotaciones sobre lo ya capturado en la mesa.
-  const { data: scoreRows } = await context.supabase
-    .from("game_team_scores")
-    .select("team_id, score")
-    .eq("game_id", game.id);
-  const current = new Map(
-    ((scoreRows ?? []) as { team_id: string; score: number }[]).map((row) => [
-      row.team_id,
-      row.score,
-    ]),
+  const scoreRows = await run(SCHEDULE, () =>
+    context.db.rows<{ team_id: string; score: number }>(sql`
+      select team_id, score from public.game_team_scores where game_id = ${game.id}
+    `),
   );
+  const current = new Map(scoreRows.map((row) => [row.team_id, row.score]));
   const targets = [
     { teamId: game.away_team_id, target: data.awayScore },
     { teamId: game.home_team_id, target: data.homeScore },
   ];
   for (const { teamId, target } of targets) {
     if (target < (current.get(teamId) ?? 0)) {
-      fail(
-        SCHEDULE,
-        "El marcador no puede ser menor a lo ya anotado en la mesa",
-      );
+      fail(SCHEDULE, "El marcador no puede ser menor a lo ya anotado en la mesa");
     }
   }
 
   if (game.status === "scheduled") {
-    const { error } = await context.supabase.rpc("start_game", {
-      p_game: game.id,
-    });
-    if (error) fail(SCHEDULE, error.message);
+    await run(SCHEDULE, () =>
+      context.db.exec(sql`select public.start_game(${game.id})`),
+    );
   }
 
-  const rows = targets.flatMap(({ teamId, target }) =>
+  const rows: Record<string, SqlValue>[] = targets.flatMap(({ teamId, target }) =>
     Array.from({ length: target - (current.get(teamId) ?? 0) }, () => ({
       game_id: game.id,
       team_id: teamId,
@@ -687,81 +757,96 @@ export async function submitFinalScore(formData: FormData): Promise<void> {
     })),
   );
   if (rows.length > 0) {
-    const { error } = await context.supabase.from("game_events").insert(rows);
-    if (error) fail(SCHEDULE, error.message);
+    await run(SCHEDULE, () =>
+      context.db.exec(sql`insert into public.game_events ${insertRows(rows)}`),
+    );
   }
 
-  const { error: finalizeError } = await context.supabase.rpc(
-    "finalize_game",
-    { p_game: game.id },
+  await run(SCHEDULE, () =>
+    context.db.exec(sql`select public.finalize_game(${game.id})`),
   );
-  if (finalizeError) fail(SCHEDULE, finalizeError.message);
   done(SCHEDULE);
 }
 
 export async function updateGame(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(gameUpdateSchema, formData, SCHEDULE);
-  const patch: Record<string, unknown> = {
+  const patch: Record<string, SqlValue> = {
     scheduled_at: localToIso(data.scheduledAt),
     court_id: data.courtId,
     venue_id: await venueIdForCourt(context, data.courtId),
   };
 
   const changesTeams = data.homeTeamId !== undefined && data.awayTeamId !== undefined;
-  let query = context.supabase.from("games").update(patch).eq("id", data.gameId);
-  if (changesTeams) {
-    const { data: gameRow } = await context.supabase
-      .from("games")
-      .select("division_id")
-      .eq("id", data.gameId)
-      .single();
-    const divisionId = (gameRow as { division_id: string | null } | null)?.division_id;
-    if (divisionId && data.homeTeamId && data.awayTeamId) {
-      await assertTeamsInDivision(context, divisionId, [data.homeTeamId, data.awayTeamId], SCHEDULE);
-    }
-    patch.home_team_id = data.homeTeamId;
-    patch.away_team_id = data.awayTeamId;
-    // Con eventos ya anotados los rivales no se tocan: solo partidos programados.
-    query = context.supabase
-      .from("games")
-      .update(patch)
-      .eq("id", data.gameId)
-      .eq("status", "scheduled");
+  if (!changesTeams) {
+    await run(SCHEDULE, () =>
+      context.db.exec(
+        sql`update public.games set ${assign(patch)} where id = ${data.gameId}`,
+      ),
+    );
+    done(SCHEDULE);
   }
-  const { error } = await query;
-  if (error) fail(SCHEDULE, error.message);
+
+  const gameRow = await run(SCHEDULE, () =>
+    context.db.maybeOne<{ division_id: string | null }>(sql`
+      select division_id from public.games where id = ${data.gameId} limit 1
+    `),
+  );
+  const divisionId = gameRow?.division_id ?? null;
+  if (divisionId && data.homeTeamId && data.awayTeamId) {
+    await assertTeamsInDivision(
+      context,
+      divisionId,
+      [data.homeTeamId, data.awayTeamId],
+      SCHEDULE,
+    );
+  }
+  patch.home_team_id = data.homeTeamId ?? null;
+  patch.away_team_id = data.awayTeamId ?? null;
+
+  // Con eventos ya anotados los rivales no se tocan: solo partidos programados.
+  await run(SCHEDULE, () =>
+    context.db.exec(sql`
+      update public.games set ${assign(patch)}
+       where id = ${data.gameId} and status = 'scheduled'
+    `),
+  );
   done(SCHEDULE);
 }
 
 export async function deleteGame(id: string): Promise<void> {
   const context = await ctx();
-  const { error } = await context.supabase
-    .from("games")
-    .delete()
-    .eq("id", id)
-    .eq("status", "scheduled");
-  if (error) fail(SCHEDULE, error.message);
+  await run(SCHEDULE, () =>
+    context.db.exec(
+      sql`delete from public.games where id = ${id} and status = 'scheduled'`,
+    ),
+  );
   done(SCHEDULE);
 }
 
 export async function assignOfficial(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(assignmentSchema, formData, SCHEDULE);
-  const { data: userId, error: lookupError } = await context.supabase.rpc(
-    "user_id_by_email",
-    { p_email: data.email },
+
+  const lookup = await run(SCHEDULE, () =>
+    context.db.maybeOne<{ id: string | null }>(sql`
+      select public.user_id_by_email(${data.email}) as id
+    `),
   );
-  if (lookupError) fail(SCHEDULE, lookupError.message);
+  const userId = lookup?.id ?? null;
   if (!userId) {
-    fail(SCHEDULE, `No existe un usuario con el correo ${data.email}. Pídele crear su cuenta primero.`);
+    fail(
+      SCHEDULE,
+      `No existe un usuario con el correo ${data.email}. Pídele crear su cuenta primero.`,
+    );
   }
-  const { error } = await context.supabase.from("game_assignments").insert({
-    game_id: data.gameId,
-    user_id: userId,
-    role: data.role,
-  });
-  if (error) fail(SCHEDULE, error.message);
+
+  await run(SCHEDULE, () =>
+    context.db.exec(sql`
+      insert into public.game_assignments (game_id, user_id, role)
+      values (${data.gameId}, ${userId}, ${data.role})
+    `),
+  );
   done(SCHEDULE);
 }
 
@@ -776,23 +861,22 @@ const REGISTRATIONS = "/admin/inscripciones";
 export async function createRegistration(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(registrationCreateSchema, formData, REGISTRATIONS);
-  const { error } = await context.supabase.from("registrations").insert({
-    season_id: data.seasonId,
-    team_id: data.teamId,
-    amount: data.amount,
-    requested_by: context.userId,
-  });
-  if (error) fail(REGISTRATIONS, error.message);
+  await run(REGISTRATIONS, () =>
+    context.db.exec(sql`
+      insert into public.registrations (season_id, team_id, amount, requested_by)
+      values (${data.seasonId}, ${data.teamId}, ${data.amount}, ${context.userId})
+    `),
+  );
   done(REGISTRATIONS);
 }
 
 async function setRegistrationStatus(id: string, status: string): Promise<void> {
   const context = await ctx();
-  const { error } = await context.supabase
-    .from("registrations")
-    .update({ status })
-    .eq("id", id);
-  if (error) fail(REGISTRATIONS, error.message);
+  await run(REGISTRATIONS, () =>
+    context.db.exec(
+      sql`update public.registrations set status = ${status} where id = ${id}`,
+    ),
+  );
   done(REGISTRATIONS);
 }
 
@@ -807,44 +891,61 @@ export async function rejectRegistration(id: string): Promise<void> {
 export async function registerCashPayment(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(cashPaymentSchema, formData, REGISTRATIONS);
-  const { error } = await context.supabase
-    .from("registrations")
-    .update({
-      status: "paid",
-      payment_method: "cash",
-      payment_ref: data.paymentRef ?? null,
-      note: data.note,
-    })
-    .eq("id", data.registrationId);
-  if (error) fail(REGISTRATIONS, error.message);
+  await run(REGISTRATIONS, () =>
+    context.db.exec(sql`
+      update public.registrations
+         set status = 'paid',
+             payment_method = 'cash',
+             payment_ref = ${data.paymentRef ?? null},
+             note = ${data.note}
+       where id = ${data.registrationId}
+    `),
+  );
   done(REGISTRATIONS);
 }
 
 export async function createMpCheckout(id: string): Promise<void> {
   const context = await ctx();
-  const { data } = await context.supabase
-    .from("registrations")
-    .select("id, amount, teams(name), seasons(name, leagues(name))")
-    .eq("id", id)
-    .single();
-  const registration = data as unknown as {
-    id: string;
-    amount: number | null;
-    teams: { name: string } | null;
-    seasons: { name: string; leagues: { name: string } | null } | null;
-  } | null;
+  const registration = await run(REGISTRATIONS, () =>
+    context.db.maybeOne<{
+      id: string;
+      amount: number | null;
+      team_name: string | null;
+      season_name: string | null;
+      league_name: string | null;
+    }>(sql`
+      select r.id, r.amount,
+             t.name as team_name,
+             se.name as season_name,
+             l.name as league_name
+        from public.registrations r
+        left join public.teams t on t.id = r.team_id
+        left join public.seasons se on se.id = r.season_id
+        left join public.leagues l on l.id = se.league_id
+       where r.id = ${id}
+       limit 1
+    `),
+  );
   if (!registration?.amount) {
     fail(REGISTRATIONS, "La inscripción necesita un monto para generar el pago");
   }
+
+  const season = registration.season_name
+    ? {
+        name: registration.season_name,
+        leagues: registration.league_name ? { name: registration.league_name } : null,
+      }
+    : null;
+
   try {
     const link = await createMpPreference({
       registrationId: registration.id,
-      title: `Inscripción ${registration.teams?.name ?? ""} · ${seasonLabel(registration.seasons)}`,
+      title: `Inscripción ${registration.team_name ?? ""} · ${seasonLabel(season)}`,
       amount: Number(registration.amount),
     });
     redirect(`${REGISTRATIONS}?mp_link=${encodeURIComponent(link)}`);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
+    if (isControlFlow(error)) throw error;
     fail(
       REGISTRATIONS,
       error instanceof Error ? error.message : "No se pudo generar el pago",
@@ -859,25 +960,24 @@ const SANCTIONS = "/admin/sanciones";
 export async function createSanction(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(sanctionSchema, formData, SANCTIONS);
-  const { error } = await context.supabase.from("sanctions").insert({
-    organization_id: context.organizationId,
-    player_id: data.playerId,
-    reason: data.reason,
-    games_count: data.gamesCount,
-    starts_on: data.startsOn,
-    created_by: context.userId,
-  });
-  if (error) fail(SANCTIONS, error.message);
+  await run(SANCTIONS, () =>
+    context.db.exec(sql`
+      insert into public.sanctions
+        (organization_id, player_id, reason, games_count, starts_on, created_by)
+      values (${context.organizationId}, ${data.playerId}, ${data.reason},
+              ${data.gamesCount}, ${data.startsOn}, ${context.userId})
+    `),
+  );
   done(SANCTIONS);
 }
 
 export async function cancelSanction(id: string): Promise<void> {
   const context = await ctx();
-  const { error } = await context.supabase
-    .from("sanctions")
-    .update({ status: "canceled" })
-    .eq("id", id);
-  if (error) fail(SANCTIONS, error.message);
+  await run(SANCTIONS, () =>
+    context.db.exec(
+      sql`update public.sanctions set status = 'canceled' where id = ${id}`,
+    ),
+  );
   done(SANCTIONS);
 }
 
@@ -889,7 +989,7 @@ export async function saveNews(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(newsSchema, formData, NEWS);
   const imageUrl = await uploadImage(context, "news-images", formData, "image", NEWS);
-  const row: Record<string, unknown> = {
+  const row: Record<string, SqlValue> = {
     organization_id: context.organizationId,
     title: data.title,
     body: data.body,
@@ -912,7 +1012,7 @@ export async function saveSponsor(formData: FormData): Promise<void> {
   const context = await ctx();
   const data = parse(sponsorSchema, formData, SPONSORS);
   const logoUrl = await uploadImage(context, "sponsor-logos", formData, "logo", SPONSORS);
-  const row: Record<string, unknown> = {
+  const row: Record<string, SqlValue> = {
     organization_id: context.organizationId,
     name: data.name,
     link_url: data.linkUrl,
@@ -956,16 +1056,16 @@ interface SignupRow {
   resolved_player_id: string | null;
 }
 
-async function loadSignup(
-  context: AdminContext,
-  id: string,
-): Promise<SignupRow> {
-  const { data } = await context.supabase
-    .from("signup_requests")
-    .select("id, kind, status, season_id, full_name, team_name, resolved_team_id, resolved_player_id")
-    .eq("id", id)
-    .maybeSingle();
-  const row = data as SignupRow | null;
+async function loadSignup(context: AdminContext, id: string): Promise<SignupRow> {
+  const row = await run(SIGNUPS, () =>
+    context.db.maybeOne<SignupRow>(sql`
+      select id, kind::text as kind, status::text as status, season_id, full_name,
+             team_name, resolved_team_id, resolved_player_id
+        from public.signup_requests
+       where id = ${id}
+       limit 1
+    `),
+  );
   if (!row) fail(SIGNUPS, "La solicitud no existe");
   return row;
 }
@@ -973,13 +1073,19 @@ async function loadSignup(
 async function closeSignup(
   context: AdminContext,
   id: string,
-  patch: Record<string, unknown>,
+  patch: Record<string, SqlValue>,
 ): Promise<void> {
-  const { error } = await context.supabase
-    .from("signup_requests")
-    .update({ ...patch, reviewed_by: context.userId, reviewed_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) fail(SIGNUPS, error.message);
+  await run(SIGNUPS, () =>
+    context.db.exec(sql`
+      update public.signup_requests
+         set ${assign({
+           ...patch,
+           reviewed_by: context.userId,
+           reviewed_at: new Date().toISOString(),
+         })}
+       where id = ${id}
+    `),
+  );
 }
 
 /** Aprueba a un coach: crea su equipo y siembra la inscripción (pago). */
@@ -990,28 +1096,24 @@ export async function approveCoachRequest(formData: FormData): Promise<void> {
   if (request.kind !== "coach") fail(SIGNUPS, "Esta solicitud no es de coach");
   if (request.resolved_team_id) fail(SIGNUPS, "El equipo ya fue creado");
 
-  const { data: created, error: teamError } = await context.supabase
-    .from("teams")
-    .insert({
-      organization_id: context.organizationId,
-      division_id: data.divisionId,
-      name: request.team_name ?? request.full_name,
-      slug: data.slug,
-      color: data.color,
-    })
-    .select("id")
-    .single();
-  if (teamError) fail(SIGNUPS, teamError.message);
-  const teamId = (created as { id: string }).id;
+  const created = await run(SIGNUPS, () =>
+    context.db.one<{ id: string }>(sql`
+      insert into public.teams (organization_id, division_id, name, slug, color)
+      values (${context.organizationId}, ${data.divisionId},
+              ${request.team_name ?? request.full_name}, ${data.slug}, ${data.color})
+      returning id
+    `),
+  );
+  const teamId = created.id;
 
   // Siembra la inscripción (queda pendiente de pago en /admin/inscripciones).
   if (request.season_id) {
-    await context.supabase.from("registrations").insert({
-      season_id: request.season_id,
-      team_id: teamId,
-      amount: data.amount ?? null,
-      requested_by: context.userId,
-    });
+    await run(SIGNUPS, () =>
+      context.db.exec(sql`
+        insert into public.registrations (season_id, team_id, amount, requested_by)
+        values (${request.season_id}, ${teamId}, ${data.amount ?? null}, ${context.userId})
+      `),
+    );
   }
 
   await closeSignup(context, request.id, {
@@ -1032,34 +1134,31 @@ export async function approvePlayerRequest(formData: FormData): Promise<void> {
   if (request.resolved_player_id) fail(SIGNUPS, "El jugador ya fue creado");
 
   // Elegibilidad: no puede estar ya en un roster activo de esa división.
-  const { data: teamRow } = await context.supabase
-    .from("teams")
-    .select("division_id")
-    .eq("id", data.teamId)
-    .single();
-  const divisionId = (teamRow as { division_id: string } | null)?.division_id;
-  if (!divisionId) fail(SIGNUPS, "Equipo inválido");
+  const team = await run(SIGNUPS, () =>
+    context.db.maybeOne<{ division_id: string }>(sql`
+      select division_id from public.teams where id = ${data.teamId} limit 1
+    `),
+  );
+  if (!team) fail(SIGNUPS, "Equipo inválido");
 
   const { firstName, lastName } = splitFullName(request.full_name);
-  const { data: created, error: playerError } = await context.supabase
-    .from("players")
-    .insert({
-      organization_id: context.organizationId,
-      first_name: firstName || request.full_name,
-      last_name: lastName || "",
-    })
-    .select("id")
-    .single();
-  if (playerError) fail(SIGNUPS, playerError.message);
-  const playerId = (created as { id: string }).id;
+  const created = await run(SIGNUPS, () =>
+    context.db.one<{ id: string }>(sql`
+      insert into public.players (organization_id, first_name, last_name)
+      values (${context.organizationId}, ${firstName || request.full_name},
+              ${lastName || ""})
+      returning id
+    `),
+  );
+  const playerId = created.id;
 
-  const { error: rosterError } = await context.supabase.from("rosters").insert({
-    team_id: data.teamId,
-    player_id: playerId,
-    jersey_number: data.jerseyNumber ?? null,
-    position: data.position ?? null,
-  });
-  if (rosterError) fail(SIGNUPS, rosterError.message);
+  await run(SIGNUPS, () =>
+    context.db.exec(sql`
+      insert into public.rosters (team_id, player_id, jersey_number, position)
+      values (${data.teamId}, ${playerId}, ${data.jerseyNumber ?? null},
+              ${data.position ?? null})
+    `),
+  );
 
   await closeSignup(context, request.id, {
     status: "approved",

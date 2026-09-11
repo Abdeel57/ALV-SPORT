@@ -79,3 +79,25 @@ describe("assign() e insertRow()", () => {
     expect(() => insertRow({})).toThrow();
   });
 });
+
+describe("insertRows()", () => {
+  it("arma un insert de varias filas con una sola lista de columnas", async () => {
+    const { insertRows } = await import("../sql");
+    const query = sql`insert into rosters ${insertRows([
+      { team_id: "t1", player_id: "p1" },
+      { team_id: "t1", player_id: "p2" },
+    ])}`;
+    expect(query.text).toBe(
+      'insert into rosters ("team_id", "player_id") values ($1, $2), ($3, $4)',
+    );
+    expect(query.values).toEqual(["t1", "p1", "t1", "p2"]);
+  });
+
+  it("exige las mismas columnas en todas las filas", async () => {
+    const { insertRows } = await import("../sql");
+    expect(() =>
+      insertRows([{ a: 1 }, { b: 2 }]),
+    ).toThrow(/mismas columnas/);
+    expect(() => insertRows([])).toThrow();
+  });
+});

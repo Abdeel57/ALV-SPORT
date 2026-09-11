@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/ui";
 import { deleteTeam, saveTeam } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 import { seasonLabel } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Equipos" };
@@ -44,20 +45,36 @@ export default async function EquiposPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: divisionRows }, { data: teamRows }] = await Promise.all([
-    context.supabase
-      .from("divisions")
-      .select("id, name, seasons(name, leagues(name))")
-      .order("created_at", { ascending: false }),
-    context.supabase
-      .from("teams")
-      .select(
-        "id, name, slug, color, logo_url, division_id, divisions(name, seasons(name, leagues(name)))",
-      )
-      .order("name"),
+  const [divisions, teams] = await Promise.all([
+    context.db.rows<DivisionOption>(sql`
+      select d.id, d.name,
+             case when se.id is null then null else json_build_object(
+               'name', se.name,
+               'leagues', case when l.id is null then null
+                               else json_build_object('name', l.name) end
+             ) end as seasons
+        from public.divisions d
+        left join public.seasons se on se.id = d.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by d.created_at desc
+    `),
+    context.db.rows<TeamRow>(sql`
+      select t.id, t.name, t.slug, t.color, t.logo_url, t.division_id,
+             case when d.id is null then null else json_build_object(
+               'name', d.name,
+               'seasons', case when se.id is null then null else json_build_object(
+                 'name', se.name,
+                 'leagues', case when l.id is null then null
+                                 else json_build_object('name', l.name) end
+               ) end
+             ) end as divisions
+        from public.teams t
+        left join public.divisions d on d.id = t.division_id
+        left join public.seasons se on se.id = d.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by t.name
+    `),
   ]);
-  const divisions = (divisionRows ?? []) as unknown as DivisionOption[];
-  const teams = (teamRows ?? []) as unknown as TeamRow[];
   const editing = teams.find((team) => team.id === edit);
 
   return (

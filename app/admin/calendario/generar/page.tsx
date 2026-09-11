@@ -10,6 +10,7 @@ import {
 } from "@/components/admin/ui";
 import { publishSchedule } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 import { assignSlots, generateRoundRobin } from "@/lib/engine";
 import { seasonLabel } from "@/lib/utils";
 
@@ -51,26 +52,32 @@ export default async function GenerarPage({
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: divisionRows }, { data: courtRows }] = await Promise.all([
-    context.supabase
-      .from("divisions")
-      .select("id, name, seasons(name, leagues(name))")
-      .order("created_at", { ascending: false }),
-    context.supabase
-      .from("courts")
-      .select("id, name, venues(name)")
-      .order("name"),
+  const [divisions, courts] = await Promise.all([
+    context.db.rows<{
+      id: string;
+      name: string;
+      seasons: { name: string; leagues: { name: string } | null } | null;
+    }>(sql`
+      select d.id, d.name,
+             case when se.id is null then null else json_build_object(
+               'name', se.name,
+               'leagues', case when l.id is null then null
+                               else json_build_object('name', l.name) end
+             ) end as seasons
+        from public.divisions d
+        left join public.seasons se on se.id = d.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by d.created_at desc
+    `),
+    context.db.rows<{ id: string; name: string; venues: { name: string } | null }>(sql`
+      select c.id, c.name,
+             case when v.id is null then null
+                  else json_build_object('name', v.name) end as venues
+        from public.courts c
+        left join public.venues v on v.id = c.venue_id
+       order by c.name
+    `),
   ]);
-  const divisions = (divisionRows ?? []) as unknown as Array<{
-    id: string;
-    name: string;
-    seasons: { name: string; leagues: { name: string } | null } | null;
-  }>;
-  const courts = (courtRows ?? []) as unknown as Array<{
-    id: string;
-    name: string;
-    venues: { name: string } | null;
-  }>;
 
   // --- Vista previa (misma lógica pura que usa publishSchedule) ---
   const divisionId = typeof params.divisionId === "string" ? params.divisionId : "";
@@ -91,11 +98,9 @@ export default async function GenerarPage({
   let previewError: string | null = null;
   async function buildPreview() {
     if (!context || !ready) return null;
-    const { data: teamRows } = await context.supabase
-      .from("teams")
-      .select("id, name")
-      .eq("division_id", divisionId);
-    const teams = (teamRows ?? []) as { id: string; name: string }[];
+    const teams = await context.db.rows<{ id: string; name: string }>(sql`
+      select id, name from public.teams where division_id = ${divisionId}
+    `);
     if (teams.length < 2) {
       throw new Error("La división necesita al menos 2 equipos para generar el rol");
     }

@@ -19,6 +19,7 @@ import {
   rejectSignup,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { join, sql, type SqlQuery } from "@/lib/db";
 import { seasonLabel, slugify } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Solicitudes" };
@@ -61,29 +62,45 @@ export default async function SolicitudesPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  let query = context.supabase
-    .from("signup_requests")
-    .select(
-      "id, kind, status, season_id, full_name, email, phone, team_name, team_color, preferred_team_id, position, jersey_number, message, created_at, resolved_team_id, resolved_player_id, seasons(name, leagues(name))",
-    )
-    .order("created_at", { ascending: false });
-  if (estado === "abiertas") query = query.in("status", ["pending", "contacted"]);
-  else if (estado) query = query.eq("status", estado);
-  if (tipo) query = query.eq("kind", tipo);
+  const conditions = [
+    estado === "abiertas"
+      ? sql`r.status in ('pending', 'contacted')`
+      : estado
+        ? sql`r.status::text = ${estado}`
+        : null,
+    tipo ? sql`r.kind::text = ${tipo}` : null,
+  ].filter((part): part is SqlQuery => part !== null);
+  const where = conditions.length > 0 ? join(conditions, " and ") : sql`true`;
 
-  const [{ data: reqData }, { data: divData }, { data: teamData }] = await Promise.all([
-    query,
-    context.supabase.from("divisions").select("id, name, season_id"),
-    context.supabase.from("teams").select("id, name, division_id, join_code"),
+  const [requests, divisions, teams] = await Promise.all([
+    context.db.rows<SignupRow>(sql`
+      select r.id, r.kind::text as kind, r.status::text as status, r.season_id,
+             r.full_name, r.email, r.phone, r.team_name, r.team_color,
+             r.preferred_team_id, r.position, r.jersey_number, r.message,
+             r.created_at, r.resolved_team_id, r.resolved_player_id,
+             case when se.id is null then null else json_build_object(
+               'name', se.name,
+               'leagues', case when l.id is null then null
+                               else json_build_object('name', l.name) end
+             ) end as seasons
+        from public.signup_requests r
+        left join public.seasons se on se.id = r.season_id
+        left join public.leagues l on l.id = se.league_id
+       where ${where}
+       order by r.created_at desc
+    `),
+    context.db.rows<{ id: string; name: string; season_id: string }>(sql`
+      select id, name, season_id from public.divisions
+    `),
+    context.db.rows<{
+      id: string;
+      name: string;
+      division_id: string;
+      join_code: string | null;
+    }>(sql`
+      select id, name, division_id, join_code from public.teams
+    `),
   ]);
-  const requests = (reqData ?? []) as unknown as SignupRow[];
-  const divisions = (divData ?? []) as { id: string; name: string; season_id: string }[];
-  const teams = (teamData ?? []) as {
-    id: string;
-    name: string;
-    division_id: string;
-    join_code: string | null;
-  }[];
   const teamCode = new Map(teams.map((t) => [t.id, t.join_code]));
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 

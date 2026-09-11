@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/ui";
 import { cancelSanction, createSanction } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Sanciones" };
 export const dynamic = "force-dynamic";
@@ -33,32 +34,35 @@ export default async function SancionesPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: sanctionRows }, { data: playerRows }] = await Promise.all([
-    context.supabase
-      .from("sanctions")
-      .select("id, reason, games_count, starts_on, status, players(first_name, last_name)")
-      .order("created_at", { ascending: false }),
-    context.supabase
-      .from("players")
-      .select("id, first_name, last_name")
-      .order("last_name")
-      .limit(200),
+  const [sanctions, players] = await Promise.all([
+    context.db.rows<SanctionRow>(sql`
+      select s.id, s.reason, s.games_count, s.starts_on, s.status::text as status,
+             case when p.id is null then null
+                  else json_build_object('first_name', p.first_name,
+                                         'last_name', p.last_name) end as players
+        from public.sanctions s
+        left join public.players p on p.id = s.player_id
+       order by s.created_at desc
+    `),
+    context.db.rows<{ id: string; first_name: string; last_name: string }>(sql`
+      select id, first_name, last_name from public.players order by last_name limit 200
+    `),
   ]);
-  const sanctions = (sanctionRows ?? []) as unknown as SanctionRow[];
-  const players = (playerRows ?? []) as { id: string; first_name: string; last_name: string }[];
 
-  // Juegos cumplidos por sanción (derivado en la base).
-  const served = new Map<string, number>();
-  await Promise.all(
-    sanctions
-      .filter((sanction) => sanction.status === "active")
-      .map(async (sanction) => {
-        const { data } = await context.supabase.rpc("sanction_games_served", {
-          p_sanction: sanction.id,
-        });
-        served.set(sanction.id, (data as number | null) ?? 0);
-      }),
-  );
+  // Juegos cumplidos por sanción (derivado en la base). Antes era una
+  // llamada por sanción; ahora la base las resuelve todas de un viaje.
+  const activeIds = sanctions
+    .filter((sanction) => sanction.status === "active")
+    .map((sanction) => sanction.id);
+  const servedRows =
+    activeIds.length > 0
+      ? await context.db.rows<{ id: string; served: number | null }>(sql`
+          select s.id, public.sanction_games_served(s.id) as served
+            from public.sanctions s
+           where s.id = any(${activeIds}::uuid[])
+        `)
+      : [];
+  const served = new Map(servedRows.map((row) => [row.id, row.served ?? 0]));
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">

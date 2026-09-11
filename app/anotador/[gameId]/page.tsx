@@ -9,10 +9,12 @@ import type {
 } from "@/components/anotador/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { isOrgManager } from "@/lib/admin/auth";
+import { getSessionUser } from "@/lib/auth/session";
+import { sql } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { getDb } from "@/lib/db/request";
 import { sportConfigSchema } from "@/lib/engine";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { compareJerseyNumber } from "@/lib/utils";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Anotando" };
 
@@ -64,10 +66,10 @@ function sortRoster(a: RosterPlayer, b: RosterPlayer): number {
 export default async function AnotadorGamePage({ params }: PageProps) {
   const { gameId } = await params;
 
-  if (!hasSupabaseEnv()) {
+  if (!hasDatabaseEnv()) {
     return (
       <Notice>
-        <p>Supabase no está configurado (ver README).</p>
+        <p>La base de datos no está configurada (ver README).</p>
         <p>
           Prueba la mesa en{" "}
           <Link href="/anotador/demo" className="text-brand-amber underline">
@@ -79,34 +81,31 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     );
   }
 
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const { data: gameData } = await supabase
-    .from("games")
-    .select("id, season_id, status, scheduled_at, home_team_id, away_team_id")
-    .eq("id", gameId)
-    .maybeSingle();
-  if (!gameData) {
+  const db = await getDb();
+  const game = await db.maybeOne<GameRow>(sql`
+    select id, season_id, status::text as status, scheduled_at,
+           home_team_id, away_team_id
+      from public.games
+     where id = ${gameId}
+     limit 1
+  `);
+  if (!game) {
     return <Notice>El partido no existe o no tienes acceso.</Notice>;
   }
-  const game = gameData as GameRow;
 
   if (game.status === "finalized" || game.status === "canceled") {
     return <Notice>Este partido ya no se puede anotar (estado: {game.status}).</Notice>;
   }
 
-  const { data: assignment } = await supabase
-    .from("game_assignments")
-    .select("id")
-    .eq("game_id", gameId)
-    .eq("user_id", user.id)
-    .eq("role", "scorekeeper")
-    .maybeSingle();
-  if (!assignment && !(await isOrgManager(supabase, user.id))) {
+  const assignment = await db.maybeOne<{ id: string }>(sql`
+    select id from public.game_assignments
+     where game_id = ${gameId} and user_id = ${user.id} and role = 'scorekeeper'
+     limit 1
+  `);
+  if (!assignment && !(await isOrgManager(db, user.id))) {
     return (
       <Notice>
         No estás asignado como anotador de este partido. Pide la asignación al
@@ -116,35 +115,36 @@ export default async function AnotadorGamePage({ params }: PageProps) {
   }
 
   // Config del deporte: partido → temporada → liga → deporte.
-  const { data: seasonData } = await supabase
-    .from("seasons")
-    .select("id, leagues(sport_id, sports(key, config))")
-    .eq("id", game.season_id)
-    .single();
-  const league = (seasonData as {
-    leagues: { sports: { key: string; config: unknown } | null } | null;
-  } | null)?.leagues;
-  if (!league?.sports) {
+  const sport = await db.maybeOne<{ key: string; config: unknown }>(sql`
+    select sp.key, sp.config
+      from public.seasons se
+      join public.leagues l on l.id = se.league_id
+      join public.sports sp on sp.id = l.sport_id
+     where se.id = ${game.season_id}
+     limit 1
+  `);
+  if (!sport) {
     return <Notice>No se pudo cargar la configuración del deporte.</Notice>;
   }
-  const sportConfig = sportConfigSchema.parse(league.sports.config);
+  const sportConfig = sportConfigSchema.parse(sport.config);
 
-  const { data: teamRows } = await supabase
-    .from("teams")
-    .select("id, name, color")
-    .in("id", [game.home_team_id, game.away_team_id]);
-  const teamsById = new Map(
-    ((teamRows ?? []) as TeamRow[]).map((team) => [team.id, team]),
-  );
+  const teamIds = [game.home_team_id, game.away_team_id];
+  const teamRows = await db.rows<TeamRow>(sql`
+    select id, name, color from public.teams where id = any(${teamIds}::uuid[])
+  `);
+  const teamsById = new Map(teamRows.map((team) => [team.id, team]));
 
-  const { data: rosterRows } = await supabase
-    .from("rosters")
-    .select("team_id, player_id, jersey_number, players(first_name, last_name)")
-    .in("team_id", [game.home_team_id, game.away_team_id])
-    .eq("status", "active");
+  const rosterRows = await db.rows<RosterRow>(sql`
+    select r.team_id, r.player_id, r.jersey_number,
+           json_build_object('first_name', p.first_name,
+                             'last_name', p.last_name) as players
+      from public.rosters r
+      join public.players p on p.id = r.player_id
+     where r.team_id = any(${teamIds}::uuid[]) and r.status = 'active'
+  `);
 
   const rosterByTeam = new Map<string, RosterPlayer[]>();
-  for (const row of (rosterRows ?? []) as unknown as RosterRow[]) {
+  for (const row of rosterRows) {
     const list = rosterByTeam.get(row.team_id) ?? [];
     list.push({
       playerId: row.player_id,
@@ -162,35 +162,37 @@ export default async function AnotadorGamePage({ params }: PageProps) {
     roster: (rosterByTeam.get(teamId) ?? []).sort(sortRoster),
   });
 
-  const { data: eventRows } = await supabase
-    .from("game_events")
-    .select(
-      "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id, created_by, created_at",
-    )
-    .eq("game_id", gameId)
-    .order("seq");
+  const eventRows = await db.rows<ServerEventRow>(sql`
+    select id, seq, game_id, team_id, player_id, event_type, payload, period,
+           clock_seconds, corrects_event_id, created_by, created_at
+      from public.game_events
+     where game_id = ${gameId}
+     order by seq
+  `);
 
   // Suspendidos por sanción: la mesa los deshabilita como titulares (y las
   // políticas de game_lineups lo rechazan de todos modos).
-  const { data: sanctionedIds } = await supabase.rpc(
-    "sanctioned_players_for_game",
-    { p_game: gameId },
-  );
+  const sanctionedRows = await db.rows<{ player_id: string | null }>(sql`
+    select public.sanctioned_players_for_game(${gameId}) as player_id
+  `);
+  const sanctionedPlayerIds = sanctionedRows
+    .map((row) => row.player_id)
+    .filter((id): id is string => Boolean(id));
 
   // Alineaciones ya confirmadas: permiten continuar el partido desde otro
   // dispositivo (IndexedDB local tiene prioridad si existe).
-  const { data: lineupRows } = await supabase
-    .from("game_lineups")
-    .select("team_id, player_id, batting_order")
-    .eq("game_id", gameId)
-    .eq("is_starter", true)
-    .order("batting_order", { ascending: true });
-  const initialLineups: Record<string, string[]> = {};
-  for (const row of (lineupRows ?? []) as Array<{
+  const lineupRows = await db.rows<{
     team_id: string;
     player_id: string;
     batting_order: number | null;
-  }>) {
+  }>(sql`
+    select team_id, player_id, batting_order
+      from public.game_lineups
+     where game_id = ${gameId} and is_starter
+     order by batting_order
+  `);
+  const initialLineups: Record<string, string[]> = {};
+  for (const row of lineupRows) {
     (initialLineups[row.team_id] ??= []).push(row.player_id);
   }
 
@@ -201,11 +203,11 @@ export default async function AnotadorGamePage({ params }: PageProps) {
       game={{ id: game.id, status: game.status, scheduledAt: game.scheduled_at }}
       homeTeam={buildTeam(game.home_team_id)}
       awayTeam={buildTeam(game.away_team_id)}
-      sportKey={league.sports.key}
+      sportKey={sport.key}
       sportConfig={sportConfig}
-      initialEvents={(eventRows ?? []) as ServerEventRow[]}
+      initialEvents={eventRows}
       initialLineups={initialLineups}
-      sanctionedPlayerIds={((sanctionedIds ?? []) as unknown as string[]) ?? []}
+      sanctionedPlayerIds={sanctionedPlayerIds}
     />
   );
 }

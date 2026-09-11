@@ -10,6 +10,7 @@ import {
 } from "@/components/admin/ui";
 import { deleteLeague, saveLeague, setLeaguePublished } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Ligas" };
 export const dynamic = "force-dynamic";
@@ -77,20 +78,27 @@ export default async function LigasPage({ searchParams }: PageProps) {
   const { ok, error, edit } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
-  const { supabase } = context;
+  const { db } = context;
   // El RLS de leagues solo deja mutar a org_admin; al season_manager se le
   // muestra la lista en solo lectura en vez de dejarlo chocar con la base.
   const canManage = context.role === "org_admin";
 
-  const [{ data: leagueRows }, { data: sportRows }] = await Promise.all([
-    supabase
-      .from("leagues")
-      .select("id, name, slug, color, logo_url, is_published, sport_id, sports(name), seasons(id)")
-      .order("name"),
-    supabase.from("sports").select("id, name").order("name"),
+  const [leagues, sports] = await Promise.all([
+    db.rows<LeagueRow>(sql`
+      select l.id, l.name, l.slug, l.color, l.logo_url, l.is_published, l.sport_id,
+             case when sp.id is null then null
+                  else json_build_object('name', sp.name) end as sports,
+             coalesce((
+               select json_agg(json_build_object('id', se.id) order by se.created_at)
+                 from public.seasons se
+                where se.league_id = l.id
+             ), '[]'::json) as seasons
+        from public.leagues l
+        left join public.sports sp on sp.id = l.sport_id
+       order by l.name
+    `),
+    db.rows<SportOption>(sql`select id, name from public.sports order by name`),
   ]);
-  const leagues = (leagueRows ?? []) as unknown as LeagueRow[];
-  const sports = (sportRows ?? []) as SportOption[];
   const editing = leagues.find((league) => league.id === edit);
 
   return (

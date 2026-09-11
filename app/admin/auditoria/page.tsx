@@ -8,6 +8,7 @@ import {
 } from "@/components/admin/ui";
 import { Pager } from "@/components/admin/pagination";
 import { requireAdmin } from "@/lib/admin/auth";
+import { join, sql, type SqlQuery } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Auditoría" };
 export const dynamic = "force-dynamic";
@@ -66,18 +67,26 @@ export default async function AuditoriaPage({ searchParams }: PageProps) {
     );
   }
 
-  let query = context.supabase
-    .from("audit_log")
-    .select("id, action, table_name, record_id, actor_id, created_at, before, after", {
-      count: "exact",
-    })
-    .order("created_at", { ascending: false })
-    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
-  if (tabla) query = query.eq("table_name", tabla);
-  if (accion) query = query.eq("action", accion);
-  const { data, count } = await query;
-  const rows = (data ?? []) as unknown as AuditRow[];
-  const total = count ?? rows.length;
+  const filters = [
+    tabla ? sql`table_name = ${tabla}` : null,
+    accion ? sql`action = ${accion}` : null,
+  ].filter((part): part is SqlQuery => part !== null);
+  const where = filters.length > 0 ? join(filters, " and ") : sql`true`;
+
+  const [rows, totalRow] = await Promise.all([
+    context.db.rows<AuditRow>(sql`
+      select id, action::text as action, table_name, record_id, actor_id,
+             created_at, before, after
+        from public.audit_log
+       where ${where}
+       order by created_at desc
+       limit ${PAGE_SIZE} offset ${(page - 1) * PAGE_SIZE}
+    `),
+    context.db.one<{ total: number }>(sql`
+      select count(*)::int as total from public.audit_log where ${where}
+    `),
+  ]);
+  const total = totalRow.total;
 
   const tables = [
     "seasons", "divisions", "teams", "players", "rosters", "games",

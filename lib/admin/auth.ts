@@ -1,12 +1,30 @@
 import { redirect } from "next/navigation";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { getDb } from "@/lib/db/request";
+import { sql, type Db } from "@/lib/db";
 
 export interface AdminContext {
-  supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  db: Db;
   userId: string;
   organizationId: string;
   role: "org_admin" | "season_manager";
+}
+
+/**
+ * True si el usuario tiene rol org_admin/season_manager (sin redirigir).
+ * La mesa de anotación lo usa para dejar anotar SIN asignación explícita —
+ * la misma regla que ya aplican las políticas RLS de game_events.
+ */
+export async function isOrgManager(db: Db, userId: string): Promise<boolean> {
+  const row = await db.maybeOne<{ role: string }>(sql`
+    select role::text as role
+      from public.organization_members
+     where user_id = ${userId}
+       and role in ('org_admin', 'season_manager')
+     limit 1
+  `);
+  return Boolean(row);
 }
 
 /**
@@ -14,45 +32,27 @@ export interface AdminContext {
  * de Postgres es la barrera real; esto evita renderizar el panel a quien
  * no corresponde. MVP: se administra la primera organización del usuario.
  */
-/**
- * True si el usuario tiene rol org_admin/season_manager (sin redirigir).
- * La mesa de anotación lo usa para dejar anotar SIN asignación explícita —
- * la misma regla que ya aplican las políticas RLS de game_events.
- */
-export async function isOrgManager(
-  supabase: AdminContext["supabase"],
-  userId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("organization_members")
-    .select("role")
-    .eq("user_id", userId)
-    .in("role", ["org_admin", "season_manager"])
-    .limit(1)
-    .maybeSingle();
-  return Boolean(data);
-}
-
 export async function requireAdmin(): Promise<AdminContext | null> {
-  if (!hasSupabaseEnv()) return null;
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!hasDatabaseEnv()) return null;
+
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const { data } = await supabase
-    .from("organization_members")
-    .select("organization_id, role")
-    .eq("user_id", user.id)
-    .in("role", ["org_admin", "season_manager"])
-    .limit(1)
-    .maybeSingle();
-  const membership = data as { organization_id: string; role: AdminContext["role"] } | null;
+  const db = await getDb();
+  const membership = await db.maybeOne<{
+    organization_id: string;
+    role: AdminContext["role"];
+  }>(sql`
+    select organization_id, role::text as role
+      from public.organization_members
+     where user_id = ${user.id}
+       and role in ('org_admin', 'season_manager')
+     limit 1
+  `);
   if (!membership) redirect("/");
 
   return {
-    supabase,
+    db,
     userId: user.id,
     organizationId: membership.organization_id,
     role: membership.role,

@@ -17,6 +17,7 @@ import {
   rejectRegistration,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 import { hasMercadoPago } from "@/lib/admin/mercadopago";
 import { seasonLabel } from "@/lib/utils";
 
@@ -45,27 +46,35 @@ export default async function InscripcionesPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: regRows }, { data: seasonRows }, { data: teamRows }] =
-    await Promise.all([
-      context.supabase
-        .from("registrations")
-        .select(
-          "id, status, amount, payment_method, payment_ref, note, teams(name), seasons(name, leagues(name))",
-        )
-        .order("created_at", { ascending: false }),
-      context.supabase
-        .from("seasons")
-        .select("id, name, leagues(name)")
-        .order("created_at", { ascending: false }),
-      context.supabase.from("teams").select("id, name").order("name"),
-    ]);
-  const registrations = (regRows ?? []) as unknown as RegistrationRow[];
-  const seasons = (seasonRows ?? []) as unknown as {
-    id: string;
-    name: string;
-    leagues: { name: string } | null;
-  }[];
-  const teams = (teamRows ?? []) as { id: string; name: string }[];
+  const [registrations, seasons, teams] = await Promise.all([
+    context.db.rows<RegistrationRow>(sql`
+      select r.id, r.status::text as status, r.amount,
+             r.payment_method::text as payment_method, r.payment_ref, r.note,
+             case when t.id is null then null
+                  else json_build_object('name', t.name) end as teams,
+             case when se.id is null then null else json_build_object(
+               'name', se.name,
+               'leagues', case when l.id is null then null
+                               else json_build_object('name', l.name) end
+             ) end as seasons
+        from public.registrations r
+        left join public.teams t on t.id = r.team_id
+        left join public.seasons se on se.id = r.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by r.created_at desc
+    `),
+    context.db.rows<{ id: string; name: string; leagues: { name: string } | null }>(sql`
+      select se.id, se.name,
+             case when l.id is null then null
+                  else json_build_object('name', l.name) end as leagues
+        from public.seasons se
+        left join public.leagues l on l.id = se.league_id
+       order by se.created_at desc
+    `),
+    context.db.rows<{ id: string; name: string }>(sql`
+      select id, name from public.teams order by name
+    `),
+  ]);
   const mpReady = hasMercadoPago();
 
   return (

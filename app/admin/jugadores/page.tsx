@@ -18,6 +18,7 @@ import {
   savePlayer,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { empty, join, sql, type SqlQuery } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Jugadores" };
 export const dynamic = "force-dynamic";
@@ -44,30 +45,47 @@ export default async function JugadoresPage({ searchParams }: PageProps) {
   if (!context) return null;
 
   // Con ?team= la lista se vuelve el roster de ese equipo (desde la tarjeta
-  // del equipo en /admin/equipos); el !inner descarta a quienes no están.
-  let playersQuery = context.supabase
-    .from("players")
-    .select(
-      team
-        ? "id, first_name, last_name, photo_url, rosters!inner(id, jersey_number, team_id, teams(name))"
-        : "id, first_name, last_name, photo_url, rosters(id, jersey_number, teams(name))",
-    )
-    .order("last_name")
-    .limit(50);
-  if (team) {
-    playersQuery = playersQuery.eq("rosters.team_id", team);
-  }
-  if (q.trim().length >= 2) {
-    playersQuery = playersQuery.or(
-      `first_name.ilike.%${q.trim()}%,last_name.ilike.%${q.trim()}%`,
-    );
-  }
-  const [{ data: playerRows }, { data: teamRows }] = await Promise.all([
-    playersQuery,
-    context.supabase.from("teams").select("id, name").order("name"),
+  // del equipo en /admin/equipos); el EXISTS descarta a quienes no están.
+  const search = q.trim();
+  const filters = [
+    team
+      ? sql`exists (select 1 from public.rosters r
+                     where r.player_id = p.id and r.team_id = ${team})`
+      : null,
+    search.length >= 2
+      ? sql`(p.first_name ilike ${`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`}
+             or p.last_name ilike ${`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`})`
+      : null,
+  ].filter((part): part is SqlQuery => part !== null);
+  const where = filters.length > 0 ? join(filters, " and ") : sql`true`;
+  // Con ?team= el roster listado es solo el de ese equipo.
+  const rosterFilter = team ? sql`and r.team_id = ${team}` : empty;
+
+  const [players, teams] = await Promise.all([
+    context.db.rows<PlayerRow>(sql`
+      select p.id, p.first_name, p.last_name, p.photo_url,
+             coalesce((
+               select json_agg(
+                        json_build_object(
+                          'id', r.id,
+                          'jersey_number', r.jersey_number,
+                          'teams', case when t.id is null then null
+                                        else json_build_object('name', t.name) end
+                        ) order by r.created_at
+                      )
+                 from public.rosters r
+                 left join public.teams t on t.id = r.team_id
+                where r.player_id = p.id ${rosterFilter}
+             ), '[]'::json) as rosters
+        from public.players p
+       where ${where}
+       order by p.last_name
+       limit 50
+    `),
+    context.db.rows<{ id: string; name: string }>(sql`
+      select id, name from public.teams order by name
+    `),
   ]);
-  const players = (playerRows ?? []) as unknown as PlayerRow[];
-  const teams = (teamRows ?? []) as { id: string; name: string }[];
   const rosterTeam = team ? teams.find((row) => row.id === team) : undefined;
 
   return (

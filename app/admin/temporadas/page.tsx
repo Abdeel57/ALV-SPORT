@@ -16,6 +16,7 @@ import {
   saveSeason,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Temporadas" };
 export const dynamic = "force-dynamic";
@@ -39,19 +40,31 @@ export default async function TemporadasPage({ searchParams }: PageProps) {
   const { ok, error, edit } = await searchParams;
   const context = await requireAdmin();
   if (!context) return null;
-  const { supabase } = context;
+  const { db } = context;
 
-  const [{ data: leagueRows }, { data: seasonRows }] = await Promise.all([
-    supabase.from("leagues").select("id, name").order("name"),
-    supabase
-      .from("seasons")
-      .select(
-        "id, name, status, starts_on, ends_on, league_id, leagues(name), divisions(id, name, sort_order)",
-      )
-      .order("created_at", { ascending: false }),
+  const [leagues, seasons] = await Promise.all([
+    db.rows<{ id: string; name: string }>(sql`
+      select id, name from public.leagues order by name
+    `),
+    db.rows<SeasonRow>(sql`
+      select se.id, se.name, se.status::text as status, se.starts_on, se.ends_on,
+             se.league_id,
+             case when l.id is null then null
+                  else json_build_object('name', l.name) end as leagues,
+             coalesce((
+               select json_agg(
+                        json_build_object('id', d.id, 'name', d.name,
+                                          'sort_order', d.sort_order)
+                        order by d.sort_order
+                      )
+                 from public.divisions d
+                where d.season_id = se.id
+             ), '[]'::json) as divisions
+        from public.seasons se
+        left join public.leagues l on l.id = se.league_id
+       order by se.created_at desc
+    `),
   ]);
-  const leagues = (leagueRows ?? []) as { id: string; name: string }[];
-  const seasons = (seasonRows ?? []) as unknown as SeasonRow[];
   const editing = seasons.find((season) => season.id === edit);
 
   return (

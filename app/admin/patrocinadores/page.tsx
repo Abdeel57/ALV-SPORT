@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/ui";
 import { deleteSponsor, saveSponsor } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Patrocinadores" };
 export const dynamic = "force-dynamic";
@@ -39,12 +40,11 @@ export default async function PatrocinadoresPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const { data } = await context.supabase
-    .from("sponsors")
-    .select("id, name, logo_url, link_url, placement, sort_order")
-    .order("placement")
-    .order("sort_order");
-  const sponsors = (data ?? []) as SponsorRow[];
+  const sponsors = await context.db.rows<SponsorRow>(sql`
+    select id, name, logo_url, link_url, placement::text as placement, sort_order
+      from public.sponsors
+     order by placement, sort_order
+  `);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">

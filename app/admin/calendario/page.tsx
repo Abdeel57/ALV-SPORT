@@ -20,6 +20,7 @@ import {
   updateGame,
 } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 import { findScheduleConflicts, type ScheduleWarning } from "@/lib/engine";
 import { seasonLabel } from "@/lib/utils";
 
@@ -76,36 +77,60 @@ export default async function CalendarioPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data: gameRows }, { data: courtRows }, { data: divisionRows }, { data: teamRows }] =
-    await Promise.all([
-      context.supabase
-        .from("games")
-        .select(
-          "id, status, scheduled_at, division_id, home_team_id, away_team_id, court_id, home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name), courts(name), game_assignments(id, role, user_id)",
-        )
-        .neq("status", "finalized")
-        .order("scheduled_at")
-        .limit(60),
-      context.supabase.from("courts").select("id, name").order("name"),
-      context.supabase
-        .from("divisions")
-        .select("id, name, seasons(name, leagues(name))")
-        .order("created_at", { ascending: false }),
-      context.supabase.from("teams").select("id, name, division_id").order("name"),
-    ]);
-  const games = (gameRows ?? []) as unknown as GameRow[];
-  const courts = (courtRows ?? []) as { id: string; name: string }[];
-  const divisions = (
-    (divisionRows ?? []) as unknown as Array<{
+  const [games, courts, divisionRows, teams] = await Promise.all([
+    context.db.rows<GameRow>(sql`
+      select g.id, g.status::text as status, g.scheduled_at, g.division_id,
+             g.home_team_id, g.away_team_id, g.court_id,
+             case when h.id is null then null
+                  else json_build_object('name', h.name) end as home,
+             case when a.id is null then null
+                  else json_build_object('name', a.name) end as away,
+             case when c.id is null then null
+                  else json_build_object('name', c.name) end as courts,
+             coalesce((
+               select json_agg(
+                        json_build_object('id', ga.id, 'role', ga.role,
+                                          'user_id', ga.user_id)
+                        order by ga.created_at
+                      )
+                 from public.game_assignments ga
+                where ga.game_id = g.id
+             ), '[]'::json) as game_assignments
+        from public.games g
+        left join public.teams h on h.id = g.home_team_id
+        left join public.teams a on a.id = g.away_team_id
+        left join public.courts c on c.id = g.court_id
+       where g.status <> 'finalized'
+       order by g.scheduled_at
+       limit 60
+    `),
+    context.db.rows<{ id: string; name: string }>(sql`
+      select id, name from public.courts order by name
+    `),
+    context.db.rows<{
       id: string;
       name: string;
       seasons: { name: string; leagues: { name: string } | null } | null;
-    }>
-  ).map((division) => ({
+    }>(sql`
+      select d.id, d.name,
+             case when se.id is null then null else json_build_object(
+               'name', se.name,
+               'leagues', case when l.id is null then null
+                               else json_build_object('name', l.name) end
+             ) end as seasons
+        from public.divisions d
+        left join public.seasons se on se.id = d.season_id
+        left join public.leagues l on l.id = se.league_id
+       order by d.created_at desc
+    `),
+    context.db.rows<TeamOption & { division_id: string | null }>(sql`
+      select id, name, division_id from public.teams order by name
+    `),
+  ]);
+  const divisions = divisionRows.map((division) => ({
     id: division.id,
     label: [division.name, seasonLabel(division.seasons)].filter(Boolean).join(" · "),
   }));
-  const teams = (teamRows ?? []) as unknown as Array<TeamOption & { division_id: string | null }>;
 
   const teamsByDivision: Record<string, TeamOption[]> = {};
   for (const team of teams) {

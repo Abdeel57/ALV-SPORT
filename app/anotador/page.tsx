@@ -5,8 +5,10 @@ import { BrandLogo } from "@/components/brand/brand-logo";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isOrgManager } from "@/lib/admin/auth";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { getDb } from "@/lib/db/request";
+import { empty, sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Mesa de anotación" };
 
@@ -43,8 +45,8 @@ function SetupNotice() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
           <p>
-            Supabase no está configurado, así que no hay partidos asignados
-            que mostrar. Sigue el README para conectar tu proyecto.
+            La base de datos no está configurada, así que no hay partidos
+            asignados que mostrar. Sigue el README para conectarla.
           </p>
           <p>
             Puedes probar la mesa completa (incluido el modo offline) en{" "}
@@ -60,53 +62,43 @@ function SetupNotice() {
 }
 
 export default async function AnotadorPage() {
-  if (!hasSupabaseEnv()) return <SetupNotice />;
+  if (!hasDatabaseEnv()) return <SetupNotice />;
 
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
+  const db = await getDb();
   // Admin/manager ven TODOS los juegos abiertos (pueden anotar cualquiera,
   // igual que en RLS); los scorekeepers solo sus asignados.
-  const manager = await isOrgManager(supabase, user.id);
-  let gameIds: string[] | null = null;
-  if (!manager) {
-    const { data: assignmentRows } = await supabase
-      .from("game_assignments")
-      .select("game_id")
-      .eq("user_id", user.id)
-      .eq("role", "scorekeeper");
-    gameIds = (assignmentRows ?? []).map(
-      (row) => (row as { game_id: string }).game_id,
-    );
-  }
+  const manager = await isOrgManager(db, user.id);
+  const onlyAssigned = manager
+    ? empty
+    : sql`and exists (
+            select 1 from public.game_assignments ga
+             where ga.game_id = g.id
+               and ga.user_id = ${user.id}
+               and ga.role = 'scorekeeper'
+          )`;
 
-  let games: AssignedGameRow[] = [];
-  let teams = new Map<string, TeamRow>();
-  if (gameIds === null || gameIds.length > 0) {
-    let query = supabase
-      .from("games")
-      .select("id, scheduled_at, status, home_team_id, away_team_id")
-      .neq("status", "finalized")
-      .neq("status", "canceled")
-      .order("scheduled_at");
-    if (gameIds !== null) query = query.in("id", gameIds);
-    const { data: gameRows } = await query;
-    games = (gameRows ?? []) as AssignedGameRow[];
+  const games = await db.rows<AssignedGameRow>(sql`
+    select g.id, g.scheduled_at, g.status::text as status,
+           g.home_team_id, g.away_team_id
+      from public.games g
+     where g.status not in ('finalized', 'canceled')
+       ${onlyAssigned}
+     order by g.scheduled_at
+  `);
 
-    const teamIds = [
-      ...new Set(games.flatMap((game) => [game.home_team_id, game.away_team_id])),
-    ];
-    if (teamIds.length > 0) {
-      const { data: teamRows } = await supabase
-        .from("teams")
-        .select("id, name, color")
-        .in("id", teamIds);
-      teams = new Map(((teamRows ?? []) as TeamRow[]).map((team) => [team.id, team]));
-    }
-  }
+  const teamIds = [
+    ...new Set(games.flatMap((game) => [game.home_team_id, game.away_team_id])),
+  ];
+  const teamRows =
+    teamIds.length > 0
+      ? await db.rows<TeamRow>(sql`
+          select id, name, color from public.teams where id = any(${teamIds}::uuid[])
+        `)
+      : [];
+  const teams = new Map(teamRows.map((team) => [team.id, team]));
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-4 px-4 py-8">

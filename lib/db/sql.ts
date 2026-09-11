@@ -135,3 +135,25 @@ export function insertRow(row: Record<string, SqlValue>): SqlQuery {
   const values = join(entries.map(([, value]) => sql`${value}`), ", ");
   return sql`(${columns}) values (${values})`;
 }
+
+/**
+ * Columnas y valores de un INSERT de varias filas:
+ * `insert into t ${insertRows(rows)}`. Todas las filas deben declarar las
+ * mismas columnas; el orden se toma de la primera.
+ */
+export function insertRows(rows: readonly Record<string, SqlValue>[]): SqlQuery {
+  const first = rows[0];
+  if (!first) throw new Error("insertRows() requiere al menos una fila");
+  const columns = Object.keys(first);
+  if (columns.length === 0) throw new Error("insertRows() requiere al menos una columna");
+
+  const columnList = join(columns.map((column) => ident(column)), ", ");
+  const tuples = rows.map((row) => {
+    const keys = Object.keys(row);
+    if (keys.length !== columns.length || columns.some((column) => !(column in row))) {
+      throw new Error("insertRows() exige las mismas columnas en todas las filas");
+    }
+    return sql`(${join(columns.map((column) => sql`${row[column]}`), ", ")})`;
+  });
+  return sql`(${columnList}) values ${join(tuples, ", ")}`;
+}

@@ -10,6 +10,7 @@ import {
 } from "@/components/admin/ui";
 import { deleteCourt, deleteVenue, saveCourt, saveVenue } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Sedes" };
 export const dynamic = "force-dynamic";
@@ -30,11 +31,16 @@ export default async function SedesPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const { data } = await context.supabase
-    .from("venues")
-    .select("id, name, address, courts(id, name)")
-    .order("name");
-  const venues = (data ?? []) as unknown as VenueRow[];
+  const venues = await context.db.rows<VenueRow>(sql`
+    select v.id, v.name, v.address,
+           coalesce((
+             select json_agg(json_build_object('id', c.id, 'name', c.name) order by c.name)
+               from public.courts c
+              where c.venue_id = v.id
+           ), '[]'::json) as courts
+      from public.venues v
+     order by v.name
+  `);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">

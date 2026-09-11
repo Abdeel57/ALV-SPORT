@@ -12,6 +12,7 @@ import {
 import { Pager } from "@/components/admin/pagination";
 import { deleteNews, regenerateAiNews, saveNews } from "@/lib/admin/actions";
 import { requireAdmin } from "@/lib/admin/auth";
+import { sql } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Noticias" };
 export const dynamic = "force-dynamic";
@@ -49,31 +50,42 @@ export default async function NoticiasPage({ searchParams }: PageProps) {
   const context = await requireAdmin();
   if (!context) return null;
 
-  const [{ data, count }, { data: jobData }, { data: editData }] = await Promise.all([
-    context.supabase
-      .from("news")
-      .select("id, title, body, status, published_at, ai_generated", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
-    context.supabase
-      .from("ai_jobs")
-      .select(
-        "id, game_id, status, attempts, error, games(home:teams!games_home_team_id_fkey(name), away:teams!games_away_team_id_fkey(name))",
-      )
-      .order("created_at", { ascending: false })
-      .limit(10),
+  const [news, totalRow, aiJobs, editData] = await Promise.all([
+    context.db.rows<NewsRow>(sql`
+      select id, title, body, status::text as status, published_at, ai_generated
+        from public.news
+       order by created_at desc
+       limit ${PAGE_SIZE} offset ${(page - 1) * PAGE_SIZE}
+    `),
+    context.db.one<{ total: number }>(sql`
+      select count(*)::int as total from public.news
+    `),
+    context.db.rows<AiJobRow>(sql`
+      select j.id, j.game_id, j.status::text as status, j.attempts, j.error,
+             case when g.id is null then null else json_build_object(
+               'home', case when h.id is null then null
+                            else json_build_object('name', h.name) end,
+               'away', case when a.id is null then null
+                            else json_build_object('name', a.name) end
+             ) end as games
+        from public.ai_jobs j
+        left join public.games g on g.id = j.game_id
+        left join public.teams h on h.id = g.home_team_id
+        left join public.teams a on a.id = g.away_team_id
+       order by j.created_at desc
+       limit 10
+    `),
     edit
-      ? context.supabase
-          .from("news")
-          .select("id, title, body, status, published_at, ai_generated")
-          .eq("id", edit)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+      ? context.db.maybeOne<NewsRow>(sql`
+          select id, title, body, status::text as status, published_at, ai_generated
+            from public.news
+           where id = ${edit}
+           limit 1
+        `)
+      : Promise.resolve(null),
   ]);
-  const news = (data ?? []) as NewsRow[];
-  const aiJobs = (jobData ?? []) as unknown as AiJobRow[];
-  const editing = (editData ?? undefined) as NewsRow | undefined;
-  const total = count ?? news.length;
+  const editing = editData ?? undefined;
+  const total = totalRow.total;
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
