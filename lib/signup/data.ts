@@ -1,6 +1,7 @@
 import "server-only";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { getDb } from "@/lib/db/request";
 
 export interface OpenSeason {
   seasonId: string;
@@ -18,7 +19,7 @@ export interface SeasonTeam {
 export interface SignupOptions {
   seasons: OpenSeason[];
   teams: SeasonTeam[];
-  /** false en modo demo (sin Supabase): el formulario no puede enviar. */
+  /** false en modo demo (sin base de datos): el formulario no puede enviar. */
   available: boolean;
 }
 
@@ -28,6 +29,7 @@ interface SeasonRow {
   league_name: string;
   sport_name: string;
 }
+
 interface TeamRow {
   season_id: string;
   team_id: string;
@@ -36,22 +38,25 @@ interface TeamRow {
 
 /** Ligas/temporadas abiertas a inscripción y sus equipos (para el form). */
 export async function getSignupOptions(): Promise<SignupOptions> {
-  if (!hasSupabaseEnv()) return { seasons: [], teams: [], available: false };
-  const supabase = await getSupabaseServerClient();
-  const [{ data: seasons }, { data: teams }] = await Promise.all([
-    supabase
-      .from("public_open_seasons")
-      .select("season_id, season_name, league_name, sport_name"),
-    supabase.from("public_season_teams").select("season_id, team_id, team_name"),
+  if (!hasDatabaseEnv()) return { seasons: [], teams: [], available: false };
+  const db = await getDb();
+  const [seasons, teams] = await Promise.all([
+    db.rows<SeasonRow>(sql`
+      select season_id, season_name, league_name, sport_name
+        from public.public_open_seasons
+    `),
+    db.rows<TeamRow>(sql`
+      select season_id, team_id, team_name from public.public_season_teams
+    `),
   ]);
   return {
-    seasons: ((seasons ?? []) as SeasonRow[]).map((row) => ({
+    seasons: seasons.map((row) => ({
       seasonId: row.season_id,
       seasonName: row.season_name,
       leagueName: row.league_name,
       sportName: row.sport_name,
     })),
-    teams: ((teams ?? []) as TeamRow[]).map((row) => ({
+    teams: teams.map((row) => ({
       seasonId: row.season_id,
       teamId: row.team_id,
       teamName: row.team_name,

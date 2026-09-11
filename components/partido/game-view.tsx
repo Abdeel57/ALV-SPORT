@@ -108,78 +108,51 @@ export function GameView({
 
   useEffect(() => {
     if (!realtime || status !== "in_progress") return;
-    type BrowserClient = ReturnType<
-      typeof import("@/lib/supabase/client").getSupabaseBrowserClient
-    >;
-    let client: BrowserClient | undefined;
-    let channel: ReturnType<BrowserClient["channel"]> | undefined;
-    let cancelled = false;
 
-    void (async () => {
-      // El cliente de Supabase (~40 KiB) se importa bajo demanda: solo cuando
-      // hay un partido EN VIVO. Así no pesa en el bundle inicial del partido
-      // (los finalizados —la mayoría— nunca lo descargan).
+    // Puesta al día: el stream no reenvía lo insertado entre el render del
+    // servidor y la suscripción, ni lo perdido durante una reconexión.
+    const catchUp = async (): Promise<void> => {
       try {
-        const mod = await import("@/lib/supabase/client");
-        client = mod.getSupabaseBrowserClient();
+        const response = await fetch(
+          `/api/anotador/events?gameId=${encodeURIComponent(game.id)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) return;
+        const body = (await response.json()) as { events?: ServerEventRow[] };
+        if (body.events) setEvents(body.events.map(mapRow));
       } catch {
-        return;
+        // Se reintenta al siguiente "open" del stream.
       }
-      if (cancelled || !client) return;
-      const activeClient = client;
-      const columns =
-        "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id";
-      channel = activeClient
-        .channel(`public-game-${game.id}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "game_events",
-            filter: `game_id=eq.${game.id}`,
-          },
-          (payload) => {
-            const row = mapRow(payload.new as ServerEventRow);
-            setEvents((prev) =>
-              prev.some((event) => event.id === row.id)
-                ? prev
-                : [...prev, row].sort((a, b) => a.seq - b.seq),
-            );
-          },
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "games",
-            filter: `id=eq.${game.id}`,
-          },
-          (payload) => {
-            const next = (payload.new as { status?: string }).status;
-            if (next) setStatus(next as typeof status);
-          },
-        )
-        .subscribe((subscriptionStatus) => {
-          // Catch-up: postgres_changes no re-emite lo perdido entre el fetch
-          // SSR y la suscripción, ni durante reconexiones del canal.
-          if (subscriptionStatus !== "SUBSCRIBED") return;
-          void activeClient
-            .from("game_events")
-            .select(columns)
-            .eq("game_id", game.id)
-            .order("seq")
-            .then(({ data }) => {
-              if (data) setEvents((data as ServerEventRow[]).map(mapRow));
-            });
-        });
-    })();
-
-    return () => {
-      cancelled = true;
-      if (client && channel) void client.removeChannel(channel);
     };
+
+    // SSE nativo del navegador: nada que descargar (el cliente de Realtime
+    // pesaba ~40 KiB) y reconecta solo si se cae la red.
+    const source = new EventSource(`/api/live/${encodeURIComponent(game.id)}`);
+
+    source.addEventListener("update", (message) => {
+      try {
+        const update = JSON.parse((message as MessageEvent<string>).data) as {
+          events?: ServerEventRow[];
+          status?: string | null;
+        };
+        if (update.events?.length) {
+          setEvents((prev) => {
+            const known = new Set(prev.map((event) => event.id));
+            const added = update.events!
+              .filter((event) => !known.has(event.id))
+              .map(mapRow);
+            if (added.length === 0) return prev;
+            return [...prev, ...added].sort((a, b) => a.seq - b.seq);
+          });
+        }
+        if (update.status) setStatus(update.status as typeof status);
+      } catch {
+        // Mensaje ilegible: el siguiente trae el estado completo.
+      }
+    });
+    source.addEventListener("open", () => void catchUp());
+
+    return () => source.close();
   }, [realtime, status, game.id]);
 
   const score = useMemo(

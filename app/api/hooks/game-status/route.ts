@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runAiJob } from "@/lib/ai/job";
 import { buildFinalPayload, buildGameStartPayload } from "@/lib/push/payloads";
-import { claimPushSlot, getServiceClient, sendPushToFollowers } from "@/lib/push/send";
+import { sql } from "@/lib/db";
+import { claimPushSlot, getServiceDb, sendPushToFollowers } from "@/lib/push/send";
 
 /**
- * Database Webhook de Supabase: UPDATE en games. Dispara:
+ * Webhook interno: UPDATE en games (trigger de Postgres con pg_net). Dispara:
  *  - inicio de partido → notificación a seguidores;
  *  - final → notificación con marcador + job de IA (borrador de noticia
  *    en <60s; si la API falla, el partido ya cerró normal y el job
@@ -29,7 +30,7 @@ interface WebhookBody {
 }
 
 function authorized(request: NextRequest): boolean {
-  const secret = process.env.SUPABASE_WEBHOOK_SECRET;
+  const secret = process.env.WEBHOOK_SECRET ?? process.env.SUPABASE_WEBHOOK_SECRET;
   return Boolean(secret) && request.headers.get("x-alv-webhook-secret") === secret;
 }
 
@@ -37,8 +38,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request)) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-  const supabase = getServiceClient();
-  if (!supabase) return NextResponse.json({ error: "No configurado" }, { status: 503 });
+  const db = getServiceDb();
+  if (!db) return NextResponse.json({ error: "No configurado" }, { status: 503 });
 
   const body = (await request.json().catch(() => null)) as WebhookBody | null;
   const record = body?.record;
@@ -47,13 +48,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
-  const { data: teamRows } = await supabase
-    .from("teams")
-    .select("id, name")
-    .in("id", [record.home_team_id, record.away_team_id]);
-  const names = new Map(
-    ((teamRows ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]),
-  );
+  const teamRows = await db.rows<{ id: string; name: string }>(sql`
+    select id, name from public.teams
+     where id = any(${[record.home_team_id, record.away_team_id]}::uuid[])
+  `);
+  const names = new Map(teamRows.map((team) => [team.id, team.name]));
   const gameForPush = {
     id: record.id,
     homeTeamId: record.home_team_id,
@@ -64,14 +63,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const teams = [record.home_team_id, record.away_team_id];
 
   if (record.status === "in_progress" && oldStatus === "scheduled") {
-    if (await claimPushSlot(supabase, record.id, "start", null)) {
+    if (await claimPushSlot(db, record.id, "start", null)) {
       await sendPushToFollowers(teams, buildGameStartPayload(gameForPush));
     }
     return NextResponse.json({ ok: true });
   }
 
   if (record.status === "finalized" && oldStatus !== "finalized") {
-    if (await claimPushSlot(supabase, record.id, "final", null)) {
+    if (await claimPushSlot(db, record.id, "final", null)) {
       await sendPushToFollowers(
         teams,
         buildFinalPayload(gameForPush, record.home_score ?? 0, record.away_score ?? 0),

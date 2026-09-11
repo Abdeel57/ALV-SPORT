@@ -1,5 +1,4 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildGameAiContext, type GameAiInput } from "./context";
 import { buildRecap } from "./recap";
 import { type AiStory } from "./schema";
@@ -8,7 +7,8 @@ import {
   sportConfigSchema,
   type EngineGameEvent,
 } from "@/lib/engine";
-import { getServiceClient } from "@/lib/push/send";
+import { sql, type Db, type SqlQuery } from "@/lib/db";
+import { getServiceDb } from "@/lib/push/send";
 
 /**
  * Job de generación al finalizar un partido. Cola simple en ai_jobs con
@@ -17,8 +17,10 @@ import { getServiceClient } from "@/lib/push/send";
  */
 
 const MAX_ATTEMPTS = 3;
-const EVENT_COLUMNS =
-  "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id";
+const EVENT_COLUMNS: SqlQuery = sql`
+  id, seq, game_id, team_id, player_id, event_type, payload, period,
+  clock_seconds, corrects_event_id
+`;
 
 interface EventRow {
   id: string;
@@ -57,22 +59,28 @@ export async function runAiJob(
   gameId: string,
   options: { force?: boolean } = {},
 ): Promise<AiJobResult> {
-  const supabase = getServiceClient();
-  if (!supabase) return { ok: false, error: "Supabase no configurado" };
+  const db = getServiceDb();
+  if (!db) return { ok: false, error: "Base de datos no configurada" };
 
-  // Asegurar el job (idempotente por game_id).
-  await supabase.from("ai_jobs").insert({ game_id: gameId }).select().maybeSingle();
-  const { data: jobData } = await supabase
-    .from("ai_jobs")
-    .select("id, status, attempts, news_id")
-    .eq("game_id", gameId)
-    .single();
-  const job = jobData as {
+  // Asegurar el job (idempotente por game_id) y leerlo, en un viaje.
+  const job = await db.maybeOne<{
     id: string;
     status: string;
     attempts: number;
     news_id: string | null;
-  } | null;
+  }>(sql`
+    with nuevo as (
+      insert into public.ai_jobs (game_id) values (${gameId})
+      on conflict (game_id) do nothing
+      returning id, status::text as status, attempts, news_id
+    )
+    select id, status, attempts, news_id from nuevo
+    union all
+    select id, status::text as status, attempts, news_id
+      from public.ai_jobs
+     where game_id = ${gameId}
+     limit 1
+  `);
   if (!job) return { ok: false, error: "No se pudo crear el job" };
   if (!options.force) {
     if (job.status === "done") return { ok: true };
@@ -81,102 +89,107 @@ export async function runAiJob(
     }
   }
 
-  await supabase.from("ai_jobs").update({ status: "running" }).eq("id", job.id);
+  await db.exec(sql`update public.ai_jobs set status = 'running' where id = ${job.id}`);
 
   try {
-    const input = await loadGameInput(supabase, gameId);
+    const input = await loadGameInput(db, gameId);
     const context = buildGameAiContext(input);
     const story = buildRecap(input, context);
-    const newsId = await saveDraft(supabase, input, context.records.length, story, job.news_id);
-    await supabase
-      .from("ai_jobs")
-      .update({ status: "done", news_id: newsId, error: null })
-      .eq("id", job.id);
+    const newsId = await saveDraft(db, input, context.records.length, story, job.news_id);
+    await db.exec(sql`
+      update public.ai_jobs
+         set status = 'done', news_id = ${newsId}, error = null
+       where id = ${job.id}
+    `);
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const attempts = job.attempts + 1;
-    await supabase
-      .from("ai_jobs")
-      .update({
-        status: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
-        attempts,
-        error: message,
-      })
-      .eq("id", job.id);
+    await db.exec(sql`
+      update public.ai_jobs
+         set status = ${attempts >= MAX_ATTEMPTS ? "failed" : "pending"},
+             attempts = ${attempts},
+             error = ${message}
+       where id = ${job.id}
+    `);
     return { ok: false, error: message };
   }
 }
 
-async function loadGameInput(
-  supabase: SupabaseClient,
-  gameId: string,
-): Promise<GameAiInput> {
-  const { data: gameData } = await supabase
-    .from("games")
-    .select(
-      "id, season_id, scheduled_at, home_team_id, away_team_id, home:teams!games_home_team_id_fkey(id,name), away:teams!games_away_team_id_fkey(id,name), seasons(name, leagues(name, sports(config)))",
-    )
-    .eq("id", gameId)
-    .single();
-  const game = gameData as unknown as {
+async function loadGameInput(db: Db, gameId: string): Promise<GameAiInput> {
+  const game = await db.maybeOne<{
     id: string;
     season_id: string;
     scheduled_at: string;
     home_team_id: string;
     away_team_id: string;
-    home: { id: string; name: string } | null;
-    away: { id: string; name: string } | null;
-    seasons: {
-      name: string;
-      leagues: { name: string; sports: { config: unknown } | null } | null;
-    } | null;
-  } | null;
-  if (!game?.seasons?.leagues?.sports) {
+    home_name: string | null;
+    away_name: string | null;
+    season_name: string;
+    league_name: string;
+    config: unknown;
+  }>(sql`
+    select g.id, g.season_id, g.scheduled_at, g.home_team_id, g.away_team_id,
+           h.name as home_name, a.name as away_name,
+           se.name as season_name, l.name as league_name, sp.config
+      from public.games g
+      left join public.teams h on h.id = g.home_team_id
+      left join public.teams a on a.id = g.away_team_id
+      join public.seasons se on se.id = g.season_id
+      join public.leagues l on l.id = se.league_id
+      join public.sports sp on sp.id = l.sport_id
+     where g.id = ${gameId}
+     limit 1
+  `);
+  if (!game) {
     throw new Error("No se pudo cargar el partido o su configuración");
   }
-  const config = sportConfigSchema.parse(game.seasons.leagues.sports.config);
+  const config = sportConfigSchema.parse(game.config);
 
-  const { data: eventRows } = await supabase
-    .from("game_events")
-    .select(EVENT_COLUMNS)
-    .eq("game_id", gameId)
-    .order("seq");
-  const events = ((eventRows ?? []) as EventRow[]).map(mapEvent);
+  const eventRows = await db.rows<EventRow>(sql`
+    select ${EVENT_COLUMNS} from public.game_events
+     where game_id = ${gameId}
+     order by seq
+  `);
+  const events = eventRows.map(mapEvent);
 
-  const { data: rosterRows } = await supabase
-    .from("rosters")
-    .select("player_id, team_id, players(first_name, last_name), teams(name)")
-    .in("team_id", [game.home_team_id, game.away_team_id]);
+  const rosterRows = await db.rows<{
+    player_id: string;
+    first_name: string | null;
+    last_name: string | null;
+    team_name: string | null;
+  }>(sql`
+    select r.player_id, p.first_name, p.last_name, t.name as team_name
+      from public.rosters r
+      join public.players p on p.id = r.player_id
+      left join public.teams t on t.id = r.team_id
+     where r.team_id = any(${[game.home_team_id, game.away_team_id]}::uuid[])
+  `);
   const playerNames: Record<string, string> = {};
   const playerTeams: Record<string, string> = {};
-  for (const row of (rosterRows ?? []) as unknown as Array<{
-    player_id: string;
-    players: { first_name: string; last_name: string } | null;
-    teams: { name: string } | null;
-  }>) {
+  for (const row of rosterRows) {
     playerNames[row.player_id] =
-      `${row.players?.first_name ?? ""} ${row.players?.last_name ?? ""}`.trim();
-    playerTeams[row.player_id] = row.teams?.name ?? "";
+      `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
+    playerTeams[row.player_id] = row.team_name ?? "";
   }
 
   // Máximos históricos de la temporada, excluyendo este juego.
-  const { data: priorGames } = await supabase
-    .from("games")
-    .select("id")
-    .eq("season_id", game.season_id)
-    .eq("status", "finalized")
-    .neq("id", gameId);
-  const priorIds = ((priorGames ?? []) as { id: string }[]).map((g) => g.id);
+  const priorGames = await db.rows<{ id: string }>(sql`
+    select id from public.games
+     where season_id = ${game.season_id}
+       and status = 'finalized'
+       and id <> ${gameId}
+  `);
+  const priorIds = priorGames.map((row) => row.id);
   const seasonMaxes: Record<string, { value: number; holder: string }> = {};
   if (priorIds.length > 0) {
-    const { data: priorEventRows } = await supabase
-      .from("game_events")
-      .select(EVENT_COLUMNS)
-      .in("game_id", priorIds)
-      .order("seq");
+    const priorEventRows = await db.rows<EventRow>(sql`
+      select ${EVENT_COLUMNS} from public.game_events
+       where game_id = any(${priorIds}::uuid[])
+       order by seq
+    `);
     const byGame = new Map<string, EngineGameEvent[]>();
-    for (const row of (priorEventRows ?? []) as EventRow[]) {
+    for (const row of priorEventRows) {
       const list = byGame.get(row.game_id) ?? [];
       list.push(mapEvent(row));
       byGame.set(row.game_id, list);
@@ -205,10 +218,10 @@ async function loadGameInput(
       id: game.id,
       homeTeamId: game.home_team_id,
       awayTeamId: game.away_team_id,
-      homeName: game.home?.name ?? "Local",
-      awayName: game.away?.name ?? "Visitante",
-      leagueName: game.seasons.leagues.name,
-      seasonName: game.seasons.name,
+      homeName: game.home_name ?? "Local",
+      awayName: game.away_name ?? "Visitante",
+      leagueName: game.league_name,
+      seasonName: game.season_name,
       scheduledAt: game.scheduled_at,
     },
     config,
@@ -220,19 +233,18 @@ async function loadGameInput(
 }
 
 async function saveDraft(
-  supabase: SupabaseClient,
+  db: Db,
   input: GameAiInput,
   recordCount: number,
   story: AiStory,
   existingNewsId: string | null,
 ): Promise<string> {
-  const { data: orgData } = await supabase
-    .from("teams")
-    .select("organization_id")
-    .eq("id", input.game.homeTeamId)
-    .single();
-  const organizationId = (orgData as { organization_id: string } | null)
-    ?.organization_id;
+  const org = await db.maybeOne<{ organization_id: string }>(sql`
+    select organization_id from public.teams
+     where id = ${input.game.homeTeamId}
+     limit 1
+  `);
+  const organizationId = org?.organization_id;
   if (!organizationId) throw new Error("No se pudo resolver la organización");
 
   const body = [
@@ -249,29 +261,21 @@ async function saveDraft(
 
   if (existingNewsId) {
     // Regenerar: sobreescribe el borrador solo si sigue sin publicarse.
-    const { data: updated } = await supabase
-      .from("news")
-      .update({ title: story.titulo, body })
-      .eq("id", existingNewsId)
-      .eq("status", "draft")
-      .select("id")
-      .maybeSingle();
+    const updated = await db.maybeOne<{ id: string }>(sql`
+      update public.news
+         set title = ${story.titulo}, body = ${body}
+       where id = ${existingNewsId} and status = 'draft'
+       returning id
+    `);
     if (updated) return existingNewsId;
   }
 
-  const { data: inserted, error } = await supabase
-    .from("news")
-    .insert({
-      organization_id: organizationId,
-      title: story.titulo,
-      body,
-      status: "draft",
-      ai_generated: true,
-    })
-    .select("id")
-    .single();
-  if (error || !inserted) {
-    throw new Error(error?.message ?? "No se pudo guardar el borrador");
-  }
-  return (inserted as { id: string }).id;
+  const inserted = await db.maybeOne<{ id: string }>(sql`
+    insert into public.news
+      (organization_id, title, body, status, ai_generated)
+    values (${organizationId}, ${story.titulo}, ${body}, 'draft', true)
+    returning id
+  `);
+  if (!inserted) throw new Error("No se pudo guardar el borrador");
+  return inserted.id;
 }

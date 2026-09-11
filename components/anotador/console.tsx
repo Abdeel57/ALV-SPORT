@@ -28,15 +28,12 @@ import {
   type QueuedEventInput,
   type SyncEngine,
 } from "@/lib/offline";
-import { createSupabaseUploader } from "@/lib/offline/supabase-uploader";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createHttpUploader } from "@/lib/offline/http-uploader";
 
 type Phase = "lineups" | "scoring" | "finished";
 type Half = "top" | "bottom" | null;
 
 const RETRY_COOLDOWN_MS = 8000;
-const EVENT_COLUMNS =
-  "id, seq, game_id, team_id, player_id, event_type, payload, period, clock_seconds, corrects_event_id, created_by, created_at";
 
 function mapServerRow(row: ServerEventRow): EngineGameEvent {
   return {
@@ -112,19 +109,12 @@ export function AnotadorConsole(props: ConsoleProps) {
   const [busy, setBusy] = useState(false);
   const [finalizedElsewhere, setFinalizedElsewhere] = useState(false);
 
-  const supabase = useMemo(() => {
-    if (mode !== "live") return null;
-    try {
-      return getSupabaseBrowserClient();
-    } catch {
-      return null;
-    }
-  }, [mode]);
+  const isLive = mode === "live";
 
   const syncEngine: SyncEngine | null = useMemo(() => {
-    if (!supabase) return null;
-    return createSyncEngine({ store, upload: createSupabaseUploader(supabase) });
-  }, [supabase, store]);
+    if (!isLive) return null;
+    return createSyncEngine({ store, upload: createHttpUploader() });
+  }, [isLive, store]);
 
   // Reintentos con enfriamiento: tras un fallo no se martillea al servidor;
   // el intervalo de 8s gobierna los reintentos (force=true lo salta).
@@ -238,62 +228,55 @@ export function AnotadorConsole(props: ConsoleProps) {
     return () => clearInterval(interval);
   }, [syncEngine, online, store, requestFlush]);
 
-  // --- Realtime + catch-up ---
+  // --- En vivo (SSE) + puesta al día ---
   const refetchServerEvents = useCallback(async () => {
-    if (!supabase) return;
-    const { data } = await supabase
-      .from("game_events")
-      .select(EVENT_COLUMNS)
-      .eq("game_id", game.id)
-      .order("seq");
-    if (data) setServerEvents(data as ServerEventRow[]);
-  }, [supabase, game.id]);
+    if (!isLive) return;
+    try {
+      const response = await fetch(
+        `/api/anotador/events?gameId=${encodeURIComponent(game.id)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) return;
+      const body = (await response.json()) as { events?: ServerEventRow[] };
+      if (body.events) setServerEvents(body.events);
+    } catch {
+      // Sin conexión: la cola local sigue siendo la fuente de la mesa.
+    }
+  }, [isLive, game.id]);
 
   useEffect(() => {
-    if (!supabase) return;
-    const channel = supabase
-      .channel(`game-events-${game.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "game_events",
-          filter: `game_id=eq.${game.id}`,
-        },
-        (payload) => {
-          const row = payload.new as ServerEventRow;
-          setServerEvents((prev) =>
-            prev.some((event) => event.id === row.id)
-              ? prev
-              : [...prev, row].sort((a, b) => a.seq - b.seq),
-          );
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "games",
-          filter: `id=eq.${game.id}`,
-        },
-        (payload) => {
-          const next = (payload.new as { status?: string }).status;
-          if (next === "finalized" || next === "canceled") {
-            setFinalizedElsewhere(true);
-          }
-        },
-      )
-      .subscribe((status) => {
-        // Catch-up: postgres_changes no repite lo insertado entre el fetch
-        // SSR y la suscripción (ni durante reconexiones del canal).
-        if (status === "SUBSCRIBED") void refetchServerEvents();
-      });
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [supabase, game.id, refetchServerEvents]);
+    if (!isLive) return;
+    // Al (re)conectar se relee todo: el stream no repite lo insertado entre
+    // el render del servidor y la suscripción.
+    void refetchServerEvents();
+
+    const source = new EventSource(`/api/live/${encodeURIComponent(game.id)}`);
+    source.addEventListener("update", (message) => {
+      try {
+        const update = JSON.parse((message as MessageEvent<string>).data) as {
+          events?: ServerEventRow[];
+          status?: string | null;
+        };
+        if (update.events?.length) {
+          setServerEvents((prev) => {
+            const known = new Set(prev.map((event) => event.id));
+            const added = update.events!.filter((event) => !known.has(event.id));
+            if (added.length === 0) return prev;
+            return [...prev, ...added].sort((a, b) => a.seq - b.seq);
+          });
+        }
+        if (update.status === "finalized" || update.status === "canceled") {
+          setFinalizedElsewhere(true);
+        }
+      } catch {
+        // Mensaje ilegible: el siguiente trae el estado completo.
+      }
+    });
+    // EventSource reintenta solo; al reconectar se vuelve a leer todo.
+    source.addEventListener("open", () => void refetchServerEvents());
+
+    return () => source.close();
+  }, [isLive, game.id, refetchServerEvents]);
 
   // Poda: eventos synced ya confirmados en el servidor salen de la cola y
   // de IndexedDB (evita crecimiento sin límite a lo largo de la temporada).
@@ -451,33 +434,25 @@ export function AnotadorConsole(props: ConsoleProps) {
       setBusy(true);
       try {
         setLineups(confirmed);
-        if (supabase) {
-          // Reemplazo completo: un reintento con selección distinta no debe
-          // dejar titulares fantasma de la confirmación anterior.
-          const { error: deleteError } = await supabase
-            .from("game_lineups")
-            .delete()
-            .eq("game_id", game.id);
-          if (deleteError) throw new Error(deleteError.message);
-          const rows = Object.entries(confirmed).flatMap(([teamId, playerIds]) =>
-            playerIds.map((playerId, index) => ({
-              game_id: game.id,
-              team_id: teamId,
-              player_id: playerId,
-              is_starter: true,
-              batting_order: isInnings ? index + 1 : null,
-            })),
-          );
-          const { error: lineupError } = await supabase
-            .from("game_lineups")
-            .insert(rows);
-          if (lineupError) throw new Error(lineupError.message);
-          // start_game es idempotente en el servidor: si un intento previo
-          // ya inició el juego, reintentar no truena.
-          const { error: startError } = await supabase.rpc("start_game", {
-            p_game: game.id,
+        if (isLive) {
+          // El servidor reemplaza las alineaciones e inicia el partido en una
+          // sola transacción (start_game sigue siendo idempotente).
+          const response = await fetch("/api/anotador/game", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "start",
+              gameId: game.id,
+              lineups: confirmed,
+              battingOrder: isInnings,
+            }),
           });
-          if (startError) throw new Error(startError.message);
+          if (!response.ok) {
+            const detail = (await response.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            throw new Error(detail?.error ?? `Error ${response.status}`);
+          }
         }
         setPhase("scoring");
         setActiveTeamId(isInnings ? awayTeam.id : homeTeam.id);
@@ -491,7 +466,7 @@ export function AnotadorConsole(props: ConsoleProps) {
         setBusy(false);
       }
     },
-    [mode, supabase, game.id, isInnings, awayTeam.id, homeTeam.id],
+    [mode, isLive, game.id, isInnings, awayTeam.id, homeTeam.id],
   );
 
   const handleFinalize = useCallback(async () => {
@@ -499,8 +474,8 @@ export function AnotadorConsole(props: ConsoleProps) {
     setBusy(true);
     try {
       if (mode === "live") {
-        if (!supabase || !syncEngine) {
-          throw new Error("Supabase no está configurado");
+        if (!syncEngine) {
+          throw new Error("La base de datos no está configurada");
         }
         // Antes de finalizar, TODOS los eventos deben estar en el servidor.
         // flush() encadenado: si hay uno en vuelo, espera su resultado real.
@@ -516,8 +491,17 @@ export function AnotadorConsole(props: ConsoleProps) {
         if (countPending(store.getState()) > 0) {
           throw new Error("Aún hay eventos pendientes de sincronizar");
         }
-        const { error } = await supabase.rpc("finalize_game", { p_game: game.id });
-        if (error) throw new Error(error.message);
+        const response = await fetch("/api/anotador/game", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "finalize", gameId: game.id }),
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(detail?.error ?? `Error ${response.status}`);
+        }
       }
       setPhase("finished");
     } catch (error) {
@@ -529,7 +513,7 @@ export function AnotadorConsole(props: ConsoleProps) {
     } finally {
       setBusy(false);
     }
-  }, [mode, supabase, syncEngine, game.id, store]);
+  }, [mode, syncEngine, game.id, store]);
 
   // --- Render por fase ---
   const status = connectionStatus(queue, mode === "demo" ? false : online);

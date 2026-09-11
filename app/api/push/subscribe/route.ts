@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getServiceClient } from "@/lib/push/send";
+import { sql } from "@/lib/db";
+import { getServiceDb } from "@/lib/push/send";
 
 /**
  * Gestión de suscripciones push. El navegador manda su PushSubscription y
- * el equipo a seguir; el servidor la guarda con service role (los
- * visitantes anónimos también pueden seguir equipos).
+ * el equipo a seguir; el servidor la guarda omitiendo RLS (los visitantes
+ * anónimos también pueden seguir equipos).
  */
 
 const subscriptionSchema = z.object({
@@ -38,63 +39,67 @@ function unavailable(): NextResponse {
   );
 }
 
+function failed(error: unknown): NextResponse {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : "Error de base de datos";
+  return NextResponse.json({ error: message }, { status: 500 });
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const supabase = getServiceClient();
-  if (!supabase) return unavailable();
+  const db = getServiceDb();
+  if (!db) return unavailable();
   const parsed = postSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   }
   const { subscription, teamId, userId } = parsed.data;
 
-  const { data: existing } = await supabase
-    .from("push_subscriptions")
-    .select("id, followed_team_ids")
-    .eq("endpoint", subscription.endpoint)
-    .maybeSingle();
-
-  if (existing) {
-    const row = existing as { id: string; followed_team_ids: string[] };
-    const teams = [...new Set([...row.followed_team_ids, teamId])];
-    const { error } = await supabase
-      .from("push_subscriptions")
-      .update({
-        followed_team_ids: teams,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-      })
-      .eq("id", row.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  } else {
-    const { error } = await supabase.from("push_subscriptions").insert({
-      endpoint: subscription.endpoint,
-      p256dh: subscription.keys.p256dh,
-      auth: subscription.keys.auth,
-      user_id: userId ?? null,
-      followed_team_ids: [teamId],
-    });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    // Alta o actualización en una sola sentencia: el endpoint es único, y
+    // al reencontrarlo se agrega el equipo a los que ya sigue.
+    await db.exec(sql`
+      insert into public.push_subscriptions
+        (endpoint, p256dh, auth, user_id, followed_team_ids)
+      values (${subscription.endpoint}, ${subscription.keys.p256dh},
+              ${subscription.keys.auth}, ${userId ?? null},
+              array[${teamId}]::uuid[])
+      on conflict (endpoint) do update
+        set p256dh = excluded.p256dh,
+            auth = excluded.auth,
+            followed_team_ids = (
+              select array(
+                select distinct unnest(
+                  public.push_subscriptions.followed_team_ids || excluded.followed_team_ids
+                )
+              )
+            )
+    `);
+  } catch (error) {
+    return failed(error);
   }
   return NextResponse.json({ ok: true });
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const supabase = getServiceClient();
-  if (!supabase) return unavailable();
+  const db = getServiceDb();
+  if (!db) return unavailable();
   const endpoint = request.nextUrl.searchParams.get("endpoint");
   if (!endpoint) return NextResponse.json({ error: "Falta endpoint" }, { status: 400 });
-  const { data } = await supabase
-    .from("push_subscriptions")
-    .select("followed_team_ids, notify_start, notify_period, notify_final")
-    .eq("endpoint", endpoint)
-    .maybeSingle();
-  if (!data) return NextResponse.json({ found: false });
-  const row = data as {
+
+  const row = await db.maybeOne<{
     followed_team_ids: string[];
     notify_start: boolean;
     notify_period: boolean;
     notify_final: boolean;
-  };
+  }>(sql`
+    select followed_team_ids, notify_start, notify_period, notify_final
+      from public.push_subscriptions
+     where endpoint = ${endpoint}
+     limit 1
+  `);
+  if (!row) return NextResponse.json({ found: false });
   return NextResponse.json({
     found: true,
     teams: row.followed_team_ids,
@@ -105,54 +110,60 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
-  const supabase = getServiceClient();
-  if (!supabase) return unavailable();
+  const db = getServiceDb();
+  if (!db) return unavailable();
   const parsed = putSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   }
   const { endpoint, notifyStart, notifyPeriod, notifyFinal } = parsed.data;
-  const { error } = await supabase
-    .from("push_subscriptions")
-    .update({
-      notify_start: notifyStart,
-      notify_period: notifyPeriod,
-      notify_final: notifyFinal,
-    })
-    .eq("endpoint", endpoint);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  try {
+    await db.exec(sql`
+      update public.push_subscriptions
+         set notify_start = ${notifyStart},
+             notify_period = ${notifyPeriod},
+             notify_final = ${notifyFinal}
+       where endpoint = ${endpoint}
+    `);
+  } catch (error) {
+    return failed(error);
+  }
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  const supabase = getServiceClient();
-  if (!supabase) return unavailable();
+  const db = getServiceDb();
+  if (!db) return unavailable();
   const parsed = deleteSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   }
   const { endpoint, teamId } = parsed.data;
 
-  if (!teamId) {
-    await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
-    return NextResponse.json({ ok: true });
-  }
-  const { data } = await supabase
-    .from("push_subscriptions")
-    .select("id, followed_team_ids")
-    .eq("endpoint", endpoint)
-    .maybeSingle();
-  if (data) {
-    const row = data as { id: string; followed_team_ids: string[] };
-    const teams = row.followed_team_ids.filter((id) => id !== teamId);
-    if (teams.length === 0) {
-      await supabase.from("push_subscriptions").delete().eq("id", row.id);
-    } else {
-      await supabase
-        .from("push_subscriptions")
-        .update({ followed_team_ids: teams })
-        .eq("id", row.id);
+  try {
+    if (!teamId) {
+      await db.exec(sql`
+        delete from public.push_subscriptions where endpoint = ${endpoint}
+      `);
+      return NextResponse.json({ ok: true });
     }
+
+    // Deja de seguir a un equipo; si era el último, se borra la suscripción.
+    await db.tx(async (tx) => {
+      await tx.exec(sql`
+        update public.push_subscriptions
+           set followed_team_ids = array_remove(followed_team_ids, ${teamId}::uuid)
+         where endpoint = ${endpoint}
+      `);
+      await tx.exec(sql`
+        delete from public.push_subscriptions
+         where endpoint = ${endpoint}
+           and cardinality(followed_team_ids) = 0
+      `);
+    });
+  } catch (error) {
+    return failed(error);
   }
   return NextResponse.json({ ok: true });
 }

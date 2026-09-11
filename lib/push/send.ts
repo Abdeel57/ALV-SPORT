@@ -1,6 +1,8 @@
 import "server-only";
 import webpush from "web-push";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { ident, sql, type Db } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { serviceDb } from "@/lib/db/session";
 import type { PushPayload } from "./payloads";
 
 /**
@@ -14,11 +16,12 @@ export function hasPushEnv(): boolean {
   );
 }
 
-export function getServiceClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
+/**
+ * Ejecutor privilegiado para tareas sin usuario (webhooks internos). Omite
+ * RLS igual que la antigua service-role key.
+ */
+export function getServiceDb(): Db | null {
+  return hasDatabaseEnv() ? serviceDb() : null;
 }
 
 interface SubscriptionRow {
@@ -26,12 +29,9 @@ interface SubscriptionRow {
   endpoint: string;
   p256dh: string;
   auth: string;
-  notify_start: boolean;
-  notify_period: boolean;
-  notify_final: boolean;
 }
 
-const prefColumn: Record<PushPayload["kind"], keyof SubscriptionRow> = {
+const prefColumn: Record<PushPayload["kind"], string> = {
   start: "notify_start",
   period: "notify_period",
   final: "notify_final",
@@ -46,8 +46,8 @@ export async function sendPushToFollowers(
   payload: PushPayload,
 ): Promise<number> {
   if (!hasPushEnv()) return 0;
-  const supabase = getServiceClient();
-  if (!supabase) return 0;
+  const db = getServiceDb();
+  if (!db) return 0;
 
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT ?? "mailto:admin@alvsport.mx",
@@ -55,12 +55,14 @@ export async function sendPushToFollowers(
     process.env.VAPID_PRIVATE_KEY ?? "",
   );
 
-  const { data } = await supabase
-    .from("push_subscriptions")
-    .select("id, endpoint, p256dh, auth, notify_start, notify_period, notify_final")
-    .overlaps("followed_team_ids", [...teamIds])
-    .eq(prefColumn[payload.kind], true);
-  const rows = (data ?? []) as SubscriptionRow[];
+  // `&&` es el operador de solapamiento de arreglos en Postgres: equivale al
+  // .overlaps() que usaba PostgREST.
+  const rows = await db.rows<SubscriptionRow>(sql`
+    select id, endpoint, p256dh, auth
+      from public.push_subscriptions
+     where followed_team_ids && ${[...teamIds]}::uuid[]
+       and ${ident(prefColumn[payload.kind])}
+  `);
 
   let sent = 0;
   const expired: string[] = [];
@@ -88,26 +90,31 @@ export async function sendPushToFollowers(
   );
 
   if (expired.length > 0) {
-    await supabase.from("push_subscriptions").delete().in("id", expired);
+    await db.exec(sql`
+      delete from public.push_subscriptions where id = any(${expired}::uuid[])
+    `);
   }
   return sent;
 }
 
 /**
  * Idempotencia: registra (game, kind, period) y devuelve true solo la
- * primera vez. Los webhooks de Supabase pueden re-entregarse.
+ * primera vez. Un webhook interno puede re-entregarse.
  */
 export async function claimPushSlot(
-  supabase: SupabaseClient,
+  db: Db,
   gameId: string,
   kind: PushPayload["kind"],
   period: number | null,
 ): Promise<boolean> {
-  const { error } = await supabase.from("push_log").insert({
-    game_id: gameId,
-    kind,
-    period,
-  });
-  // Violación de unicidad = ya se envió antes.
-  return !error;
+  try {
+    await db.exec(sql`
+      insert into public.push_log (game_id, kind, period)
+      values (${gameId}, ${kind}, ${period})
+    `);
+    return true;
+  } catch {
+    // Violación de unicidad = ya se envió antes.
+    return false;
+  }
 }

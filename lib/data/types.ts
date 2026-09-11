@@ -8,7 +8,7 @@ import type {
 /**
  * Contratos del sitio público. Dos proveedores los implementan:
  *  - seed-provider: calcula todo desde lib/seed-data con el motor (sin DB).
- *  - supabase-provider: lee de Supabase (con Realtime en el cliente).
+ *  - postgres-provider: lee de Postgres (con marcador en vivo por SSE).
  * La selección es automática según haya proyecto configurado.
  */
 

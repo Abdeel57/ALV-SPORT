@@ -1,6 +1,7 @@
 import "server-only";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { getDb } from "@/lib/db/request";
 
 export interface TeamInvite {
   teamId: string;
@@ -22,10 +23,13 @@ interface InviteRow {
 
 /** Resuelve un código de invitación → equipo/liga (o null si no existe). */
 export async function resolveTeamInvite(code: string): Promise<TeamInvite | null> {
-  if (!hasSupabaseEnv()) return null;
-  const supabase = await getSupabaseServerClient();
-  const { data } = await supabase.rpc("resolve_team_invite", { p_code: code });
-  const row = (data as InviteRow[] | null)?.[0];
+  if (!hasDatabaseEnv()) return null;
+  const db = await getDb();
+  const row = await db.maybeOne<InviteRow>(sql`
+    select team_id, team_name, team_color, league_name, season_id, season_name
+      from public.resolve_team_invite(${code})
+     limit 1
+  `);
   if (!row) return null;
   return {
     teamId: row.team_id,

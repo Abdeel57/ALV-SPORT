@@ -25,7 +25,7 @@ import { buildStatCategories } from "./stat-leaders";
 /**
  * Proveedor del sitio público leyendo Postgres directo.
  *
- * Sustituye a supabase-provider sin cambiar una sola regla de negocio: el
+ * Sustituye al proveedor de Supabase sin cambiar una regla de negocio: el
  * marcador, los desempates y las estadísticas los sigue calculando el motor
  * en /lib/engine. Lo único que cambia es de dónde salen las filas —antes
  * PostgREST por HTTP, ahora SQL— y las consultas corren con el rol `anon`

@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { sql } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { serviceDb } from "@/lib/db/session";
 import { fetchMpPayment } from "@/lib/admin/mercadopago";
 
 /**
@@ -37,13 +39,11 @@ function verifyMpSignature(request: NextRequest): boolean {
 /**
  * Webhook de Mercado Pago: al aprobarse un pago, activa la inscripción.
  * La verdad se consulta de vuelta a la API de MP (nunca se confía en el
- * cuerpo del webhook) y la escritura usa la service key (el webhook no
- * tiene sesión de usuario). Idempotente: re-notificar no cambia nada.
+ * cuerpo del webhook) y la escritura omite RLS (el webhook no tiene sesión
+ * de usuario). Idempotente: re-notificar no cambia nada.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!serviceKey || !url) {
+  if (!hasDatabaseEnv()) {
     return NextResponse.json({ error: "No configurado" }, { status: 503 });
   }
   if (!verifyMpSignature(request)) {
@@ -69,16 +69,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!payment?.externalReference) return NextResponse.json({ received: true });
 
   if (payment.status === "approved") {
-    const supabase = createClient(url, serviceKey);
-    await supabase
-      .from("registrations")
-      .update({
-        status: "paid",
-        payment_method: "mercado_pago",
-        payment_ref: paymentId,
-      })
-      .eq("id", payment.externalReference)
-      .neq("status", "paid");
+    await serviceDb().exec(sql`
+      update public.registrations
+         set status = 'paid',
+             payment_method = 'mercado_pago',
+             payment_ref = ${paymentId}
+       where id = ${payment.externalReference} and status <> 'paid'
+    `);
   }
   return NextResponse.json({ received: true });
 }

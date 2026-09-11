@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { getSessionUser } from "@/lib/auth/session";
+import { sql } from "@/lib/db";
+import { hasDatabaseEnv } from "@/lib/db/pool";
+import { serviceDb } from "@/lib/db/session";
 import { SEED_ADMIN_USER_ID } from "@/lib/seed-data/ids";
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Activar acceso" };
 export const dynamic = "force-dynamic";
@@ -22,37 +23,29 @@ async function loadState(userId: string | null): Promise<{
   organizationId: string | null;
 }> {
   if (!userId) return { state: "anon", organizationId: null };
-  const admin = getSupabaseAdminClient();
-  const { data: org } = await admin
-    .from("organizations")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+
+  const db = serviceDb();
+  const org = await db.maybeOne<{ id: string }>(sql`
+    select id from public.organizations order by created_at asc limit 1
+  `);
   if (!org) return { state: "no-org", organizationId: null };
-  const organizationId = (org as { id: string }).id;
 
-  const { data: adminsData } = await admin
-    .from("organization_members")
-    .select("user_id")
-    .eq("organization_id", organizationId)
-    .eq("role", "org_admin");
-  const admins = (adminsData ?? []) as { user_id: string }[];
-  const realAdmins = admins.filter((a) => a.user_id !== SEED_ADMIN_USER_ID);
+  const admins = await db.rows<{ user_id: string }>(sql`
+    select user_id from public.organization_members
+     where organization_id = ${org.id} and role = 'org_admin'
+  `);
+  const realAdmins = admins.filter((row) => row.user_id !== SEED_ADMIN_USER_ID);
 
-  if (realAdmins.some((a) => a.user_id === userId)) {
-    return { state: "already", organizationId };
+  if (realAdmins.some((row) => row.user_id === userId)) {
+    return { state: "already", organizationId: org.id };
   }
-  if (realAdmins.length > 0) return { state: "taken", organizationId };
-  return { state: "available", organizationId };
+  if (realAdmins.length > 0) return { state: "taken", organizationId: org.id };
+  return { state: "available", organizationId: org.id };
 }
 
 async function claimAdmin(): Promise<void> {
   "use server";
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
   const { state, organizationId } = await loadState(user.id);
@@ -60,12 +53,15 @@ async function claimAdmin(): Promise<void> {
   if (state === "taken") redirect("/activar?e=taken");
   if (state === "already" || !organizationId) redirect("/admin");
 
-  const admin = getSupabaseAdminClient();
-  const { error } = await admin.from("organization_members").upsert(
-    { organization_id: organizationId, user_id: user.id, role: "org_admin" },
-    { onConflict: "organization_id,user_id" },
-  );
-  if (error) redirect("/activar?e=db");
+  try {
+    await serviceDb().exec(sql`
+      insert into public.organization_members (organization_id, user_id, role)
+      values (${organizationId}, ${user.id}, 'org_admin')
+      on conflict (organization_id, user_id) do update set role = 'org_admin'
+    `);
+  } catch {
+    redirect("/activar?e=db");
+  }
   redirect("/admin");
 }
 
@@ -81,12 +77,9 @@ interface PageProps {
 
 export default async function ActivarPage({ searchParams }: PageProps) {
   const { e } = await searchParams;
-  if (!hasSupabaseEnv()) redirect("/");
+  if (!hasDatabaseEnv()) redirect("/");
 
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const { state } = await loadState(user?.id ?? null);
 
   return (

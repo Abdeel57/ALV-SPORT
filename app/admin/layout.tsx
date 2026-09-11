@@ -7,7 +7,7 @@ import {
 } from "@/components/admin/admin-nav";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { Card, CardContent } from "@/components/ui/card";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { hasDatabaseEnv } from "@/lib/db/pool";
 
 export const metadata: Metadata = {
   title: { default: "Panel", template: "%s | ALV Admin" },
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 export default function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  if (!hasSupabaseEnv()) {
+  if (!hasDatabaseEnv()) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4">
         <BrandLogo className="h-8" />
@@ -37,10 +37,10 @@ export default function AdminLayout({
           <CardContent className="flex flex-col gap-3 py-8 text-sm text-muted-foreground">
             <p className="font-display text-2xl text-foreground">Panel administrativo</p>
             <p>
-              El panel muta datos reales, así que requiere un proyecto de
-              Supabase configurado. Sigue el runbook del README (crear
-              proyecto → <code>db push</code> → seed → credenciales en{" "}
-              <code>.env.local</code>) y vuelve aquí.
+              El panel muta datos reales, así que requiere la base de datos
+              configurada. Sigue el runbook del README (crear Postgres →
+              migraciones → seed → <code>DATABASE_URL</code> y{" "}
+              <code>AUTH_SECRET</code> en <code>.env.local</code>) y vuelve aquí.
             </p>
             <p>
               Mientras tanto puedes explorar el{" "}
