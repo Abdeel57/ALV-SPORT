@@ -9,6 +9,12 @@ import { cn } from "@/lib/utils";
  * Barra de pestañas inferior del sitio público en móvil, al estilo de una app
  * nativa: siempre a la mano del pulgar, con estado activo y respuesta al
  * toque. En pantallas ≥640px la navegación vive en la cabecera.
+ *
+ * Safari 26 (iOS) recorta las capas fijas opacas o con backdrop-filter en el
+ * borde superior de su barra flotante, y deja ver la página por debajo. Por
+ * eso esta barra NO usa desenfoque, lleva un fondo con una pizca de
+ * transparencia (Safari la compone aparte y sí puede extenderse tras su
+ * barra) y un ::after que prolonga ese fondo bajo el borde de la ventana.
  */
 const TABS = [
   { href: "/", label: "Inicio", icon: Home, isActive: (path: string) => path === "/" },
@@ -25,12 +31,9 @@ const TABS = [
 export function MobileTabBar() {
   const pathname = usePathname() ?? "/";
   return (
-    // El ::after prolonga el fondo por debajo del borde de la ventana: Safari en
-    // iPhone sigue pintando la página unos píxeles más abajo, tras su barra de
-    // direcciones semitransparente, y sin esto ahí se asomaba el contenido.
     <nav
       aria-label="Navegación"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md select-none after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-32 after:bg-background after:content-[''] sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-background/98 pb-[env(safe-area-inset-bottom)] [opacity:.99] select-none after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-40 after:bg-background/98 after:content-[''] sm:hidden"
     >
       <div className="bg-brand-gradient h-px w-full opacity-50" aria-hidden />
       <ul className="grid grid-cols-4">

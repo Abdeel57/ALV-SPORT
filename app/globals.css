@@ -169,6 +169,9 @@
   }
   html {
     @apply font-sans;
+    /* Safari 26 pinta este color tras sus barras flotantes cuando no hay
+       contenido que muestrear: debe ser el negro de marca, no blanco. */
+    background-color: var(--background);
     /* Sensación de app en móvil: sin destello gris al tocar ni zoom por doble
        toque (el pellizco sigue disponible); el texto no se reescala solo. */
     -webkit-tap-highlight-color: transparent;

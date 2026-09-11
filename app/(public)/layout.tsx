@@ -23,10 +23,17 @@ export default async function PublicLayout({
           <SponsorStrip sponsors={sponsors} />
           <div className="flex flex-wrap items-end justify-between gap-4">
             <BrandLogo className="h-10" />
-            <p className="text-xs text-muted-foreground">
-              El sistema operativo de tu liga — inscripciones, calendario,
-              anotación en vivo y estadísticas.
-            </p>
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+              <p>
+                El sistema operativo de tu liga — inscripciones, calendario,
+                anotación en vivo y estadísticas.
+              </p>
+              {process.env.NEXT_PUBLIC_BUILD_STAMP && (
+                <p className="text-[10px] text-muted-foreground/60 tabular-nums">
+                  Versión {process.env.NEXT_PUBLIC_BUILD_STAMP}
+                </p>
+              )}
+            </div>
           </div>
         </div>
         <BismarkCredit />

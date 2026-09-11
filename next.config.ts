@@ -18,7 +18,19 @@ const storageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
   : null;
 
+// Sello de versión (hora de build) visible en el pie del sitio: permite saber
+// de un vistazo si un teléfono está viendo la última versión o una copia
+// vieja retenida por el service worker.
+const buildStamp = new Intl.DateTimeFormat("es-MX", {
+  timeZone: "America/Mexico_City",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+}).format(new Date());
+
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_BUILD_STAMP: buildStamp },
   // Hay lockfiles ajenos arriba en el árbol (C:\Users\Admin): fijar la raíz.
   outputFileTracingRoot: process.cwd(),
   // Railway: imagen mínima con server.js autocontenido (ver Dockerfile).
