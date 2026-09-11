@@ -11,7 +11,9 @@ const navLinkClass =
  */
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/5 bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-md select-none">
+    // El ::before prolonga el fondo por encima del borde superior: en Safari de
+    // iPhone la página se asoma bajo la barra de estado al hacer scroll.
+    <header className="sticky top-0 z-30 border-b border-white/5 bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-md select-none before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-32 before:bg-background before:content-['']">
       <div className="mx-auto flex h-12 w-full max-w-5xl items-center gap-x-5 px-4 sm:h-auto sm:py-3">
         <Link href="/" className="shrink-0 leading-none" aria-label="ALV SPORT — Inicio">
           <BrandLogo priority className="h-7 sm:h-8" />

@@ -25,9 +25,12 @@ const TABS = [
 export function MobileTabBar() {
   const pathname = usePathname() ?? "/";
   return (
+    // El ::after prolonga el fondo por debajo del borde de la ventana: Safari en
+    // iPhone sigue pintando la página unos píxeles más abajo, tras su barra de
+    // direcciones semitransparente, y sin esto ahí se asomaba el contenido.
     <nav
       aria-label="Navegación"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md select-none sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md select-none after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-32 after:bg-background after:content-[''] sm:hidden"
     >
       <div className="bg-brand-gradient h-px w-full opacity-50" aria-hidden />
       <ul className="grid grid-cols-4">
