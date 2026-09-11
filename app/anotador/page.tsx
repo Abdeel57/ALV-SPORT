@@ -61,6 +61,9 @@ function SetupNotice() {
   );
 }
 
+// Siempre por petición: la comprobación de DATABASE_URL no debe congelarse en el build.
+export const dynamic = "force-dynamic";
+
 export default async function AnotadorPage() {
   if (!hasDatabaseEnv()) return <SetupNotice />;
 

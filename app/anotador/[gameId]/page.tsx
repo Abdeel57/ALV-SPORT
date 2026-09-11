@@ -95,6 +95,9 @@ function toLineupSlot(row: LineupRow): LineupSlotInput {
   };
 }
 
+// Siempre por petición: la comprobación de DATABASE_URL no debe congelarse en el build.
+export const dynamic = "force-dynamic";
+
 export default async function AnotadorGamePage({ params }: PageProps) {
   const { gameId } = await params;
 

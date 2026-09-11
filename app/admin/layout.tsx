@@ -26,6 +26,9 @@ export const metadata: Metadata = {
   },
 };
 
+// Siempre por petición: la comprobación de DATABASE_URL no debe congelarse en el build.
+export const dynamic = "force-dynamic";
+
 export default function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
